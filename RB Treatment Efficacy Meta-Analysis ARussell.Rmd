@@ -1,0 +1,2406 @@
+---
+title: "RB Surgical Severity Analysis Treatment"
+author: "Ash A. M. Russell"
+date: "14/04/2022"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+options(scipen = 999) #turns off scientific notation
+
+if(!require(tidyverse)) install.packages("tidyverse")
+if(!require(metafor)) install.packages("metafor")
+if(!require(MuMIn)) install.packages("MuMIn")
+if(!require(multcomp)) install.packages("multcomp")
+if(!require(data.table)) install.packages("data.table")
+if(!require(viridis)) install.packages("viridis")
+if(!require(PupillometryR)) install.packages("PupillometryR")
+if(!require(metaviz)) install.packages("metaviz")
+if(!require(lme4)) install.packages("lme4")
+if(!require(lmerTest)) install.packages("lmerTest")
+if(!require(merTools)) install.packages("merTools")
+if(!require(ggcorrplot)) install.packages("ggcorrplot")
+
+#load libraries
+library(tidyverse)
+library(metafor) #meta-analysis main library
+library(MuMIn) #for some meta-analysis functions
+eval(metafor:::.MuMIn) #to get metafor and MumIn working together
+library(multcomp) #for glht function
+library(data.table) #used for gsub function in plots
+library(viridis) #colour-blind friendly colour palettes
+library(PupillometryR) #used in rain cloud plots
+library(metaviz) #for visualising funnel plots with power analysis
+library(lme4) #for lmer random-effects linear model with subgroup analysis
+library(lmerTest) #to get more information out of linear model summary
+library(merTools) #for tools to make predictions from linear model
+library(ggcorrplot) #for collinearity plots
+
+```
+
+## Import and clean data
+```{r data_import, include=FALSE}
+#importing main dataset
+df_Raw <- read.csv("Russell_Data_Extraction_Rose_Bengal_11.csv")
+df <- df_Raw #copy the raw data frame to make changes to variables, keeping df_Raw as a control to fix mistakes
+
+#importing CAMARADES quality assessment data
+df_Quality <- read.csv("Russell_Rose_Bengal_Quality_2.csv")
+
+#merging the quality dataframe with the main dataset by publication code
+df <- merge(df, df_Quality)
+
+```
+
+```{r variable_clean, include=FALSE, warning=FALSE}
+#cleaning the database and fixing variable classification
+
+#change all relevant "character" variables to "factor" variables
+#animal variables
+df$Animal <- factor(df$Animal)
+df$Strain <- factor(df$Strain)
+df$Sex <- factor(df$Sex)
+df$Comorbidity <- factor(df$Comorbidity)
+df$Comorbidity_induction <- factor(df$Comorbidity_induction)
+#stroke model variables
+df$Primary_anaesthetic <- factor(df$Primary_anaesthetic)
+df$Secondary_anaesthetic <- factor(df$Secondary_anaesthetic)
+df$Surgical_level <- factor(df$Surgical_level)
+df$Brain_area <- factor(df$Brain_area)
+df$Light_type <- factor(df$Light_type)
+df$Light_source <- factor(df$Light_source)
+as.table(summary(df$Surgical_level))
+#treatment variables
+df$Treatment <- factor(df$Treatment)
+df$Treatment_class <- factor(df$Treatment_class)
+df$Treatment_time_class <- factor(df$Treatment_time_class)
+#infarct outcome variables
+df$Infarct_measurement <- factor(df$Infarct_measurement)
+#neuroscore outcome variables
+df$Scale_type <- factor(df$Scale_type)
+#quality markers
+df$X1_Peer_review <- factor(df$X1_Peer_review)
+df$X2_Body_temp <- factor(df$X2_Body_temp)
+df$X3_Random_allocation <- factor(df$X3_Random_allocation)
+df$X4_Blinded_allocation <- factor(df$X4_Blinded_allocation)
+df$X5_Blinded_assessment <- factor(df$X5_Blinded_assessment)
+df$X7_Model_comorbidity <- factor(df$X7_Model_comorbidity)
+df$X8_Power_calc <- factor(df$X8_Power_calc)
+df$X9_Animal_ethics <- factor(df$X9_Animal_ethics)
+df$X10_Disclosure_statement <- factor(df$X10_Disclosure_statement)
+
+summary(df)
+
+#change all relevant "character" variables to "numeric"
+#age variables
+df$Age_weeks_min <- as.numeric(df$Age_weeks_min)
+df$Age_weeks_mean <- as.numeric(df$Age_weeks_mean)
+df$Age_weeks_max <- as.numeric(df$Age_weeks_max)
+#weight variables
+df$Weight_g_min <- as.numeric(df$Weight_g_min)
+df$Weight_g_mean <- as.numeric(df$Weight_g_mean)
+df$Weight_g_max<- as.numeric(df$Weight_g_max)
+#animal groups and n variables
+df$N_animals_control <- as.numeric(df$N_animals_control)
+df$N_treatment_groups <- as.numeric(df$N_treatment_groups)
+df$N_animals_treatment <- as.numeric(df$N_animals_treatment)
+#stroke model variables
+df$RB_dose <- as.numeric(df$RB_dose)
+df$Light_wavelength <- as.numeric(df$Light_wavelength)
+df$Light_aperture <- as.numeric(df$Light_aperture)
+df$Light_time <- as.numeric(df$Light_time)
+#treatment variables
+df$Treatment_dose <- as.numeric(df$Treatment_dose)
+df$Treatment_initial_hour <- as.numeric(df$Treatment_initial_hour)
+#infarct outcome variables
+df$Infarct_time <- as.numeric(df$Infarct_time)
+df$Infarct_mean_control <- as.numeric(df$Infarct_mean_control)
+df$Infarct_error_control <- as.numeric(df$Infarct_error_control)
+df$Infarct_mean_treatment <- as.numeric(df$Infarct_mean_treatment)
+df$Infarct_error_treatment <- as.numeric(df$Infarct_error_treatment)
+df$Infarct_diff_from_control <- as.numeric(df$Infarct_diff_from_control)
+df$Infarct_diff_from_control_error <- as.numeric(df$Infarct_diff_from_control_error)
+df$Infarct_SD_treatment <- as.numeric(df$Infarct_SD_treatment)
+#neuroscore outcome variables
+df$Scale_score_control <- as.numeric(df$Scale_score_control)
+df$Scale_error_control <- as.numeric(df$Scale_error_control)
+df$Scale_score_treatment <- as.numeric(df$Scale_score_treatment)
+df$Scale_error_treatment <- as.numeric(df$Scale_error_treatment)
+df$Scale_time <- as.numeric(df$Scale_time)
+
+```
+
+```{r variable_creation, include=FALSE}
+
+#creating anaesthetic variable with multiple anaesthetics combined
+df$Anaesthetic <- 
+  paste(df$Primary_anaesthetic, 
+        coalesce(df$Secondary_anaesthetic, ""))
+df$Anaesthetic <- df$Anaesthetic %>%
+  str_trim() %>% #trims whitespace from start and end of string 
+  factor() %>% #converts to a factor
+  na_if("NA") #%>% #changes all factor NA's to logical NA's
+
+#create variable for infarct measurement time as a class, 0 = <=24, 1 = >24
+df$Infarct_time_class_24<-(df$Infarct_time>24)*1
+
+#make new variable, decade, and check it has correctly classified
+summary(df$Year)
+df <- df %>% 
+  mutate(Decade = cut(Year,
+         breaks = c(1979, 1989, 1999, 2009, 2019, 2029),
+         labels = c("80's", "90's", "00's", "10's", "20's"))) 
+summary(df$Decade)
+head(df$Decade)
+tapply(df$Year, df$Decade, summary)
+
+```
+
+```{r subgroup_data_frames, eval=FALSE, include=FALSE}
+#make some sub-group data frames for different analyses
+
+#all rodents (rats and mice)
+df_Rodent <- df %>%
+  filter(Animal == "Rat" | Animal == "Mouse")
+#rats only
+df_Rat <- df %>%
+  filter(Animal == "Rat")
+#mice only
+df_Mouse <- df %>%
+  filter(Animal == "Mouse")
+#primates
+df_Primate <- df %>%
+  filter(Animal == "Primate")
+#other (including primates, all others except rodents)
+df_OtherSpecies <- df %>%
+   filter(Animal != "Rat" & Animal != "Mouse")
+
+#subgroup leaving only surgical_levels of top 3: scalp retracted skull intact, skull thinned, skull breached
+df_SL <- df %>%
+  filter(Surgical_level == "Scalp retracted, skull intact" | 
+           Surgical_level == "Skull thinned" | 
+           Surgical_level == "Skull breached")
+
+#a data frame with only one row for each unique study, DO NOT USE THIS FOR ANYTHING EXCEPT COUNTS OF STUDIES. This takes only the first row (i.e. experiment) for each study so it is missing most of the data
+df_UniqueStudies <- df %>%
+  distinct(Publication_code, .keep_all = TRUE) #.keep_all keeps all the other variables so it's not just the Publication_code variable included
+table(df_UniqueStudies$Surgical_level)
+```
+
+```{r anaesthetic_dummy_variable, include=FALSE}
+#Making dummy variables for most common anaesthetics to use later
+
+df$Isoflurane<-rep(0, nrow(df)) #make a column called "Isoflurane" and populate it with zeros
+df$Isoflurane<-(df$Primary_anaesthetic=="Isoflurane"|df$Secondary_anaesthetic== "Isoflurane")*1 #if the primary or secondary anaesthetic is isoflurane, times it by 1
+df$Isoflurane[is.na(df$Isoflurane)]<-0 #because the previous step produces a bunch of NAs, convert NAs back to 0
+
+#repeat for other anaesthetics
+df$Ketamine<-rep(0, nrow(df))
+df$Ketamine<-(df$Primary_anaesthetic=="Ketamine"|df$Secondary_anaesthetic== "Ketamine")*1 
+df$Ketamine[is.na(df$Ketamine)]<-0 
+
+df$Xylazine<-rep(0, nrow(df))
+df$Xylazine<-(df$Primary_anaesthetic=="Xylazine"|df$Secondary_anaesthetic== "Xylazine")*1 
+df$Xylazine[is.na(df$Xylazine)]<-0 
+
+df$Nitrous_oxide<-rep(0, nrow(df))
+df$Nitrous_oxide<-(df$Primary_anaesthetic=="Nitrous oxide"|df$Secondary_anaesthetic== "Nitrous oxide")*1 
+df$Nitrous_oxide[is.na(df$Nitrous_oxide)]<-0
+
+df$Halothane<-rep(0, nrow(df))
+df$Halothane<-(df$Primary_anaesthetic=="Halothane"|df$Secondary_anaesthetic== "Halothane")*1 
+df$Halothane[is.na(df$Halothane)]<-0 
+
+df$Chloral_hydrate<-rep(0, nrow(df))
+df$Chloral_hydrate<-(df$Primary_anaesthetic=="Chloral hydrate"|df$Secondary_anaesthetic== "Chloral hydrate")*1 
+df$Chloral_hydrate[is.na(df$Chloral_hydrate)]<-0 
+
+df$Sodium_pentobarbital<-rep(0, nrow(df))
+df$Sodium_pentobarbital<-(df$Primary_anaesthetic=="Sodium Pentobarbital"|df$Secondary_anaesthetic== "Sodium Pentobarbital")*1 
+df$Sodium_pentobarbital[is.na(df$Sodium_pentobarbital)]<-0 
+
+df$Enflurane<-rep(0, nrow(df))
+df$Enflurane<-(df$Primary_anaesthetic=="Enflurane"|df$Secondary_anaesthetic== "Enflurane")*1 
+df$Enflurane[is.na(df$Enflurane)]<-0 
+
+df$Anaesthetic_not_reported<-rep(0, nrow(df))
+df$Anaesthetic_not_reported<-(df$Primary_anaesthetic=="NR"|df$Secondary_anaesthetic== "NR")*1 
+df$Anaesthetic_not_reported[is.na(df$Anaesthetic_not_reported)]<-0 
+
+df$Medetomidine<-rep(0, nrow(df))
+df$Medetomidine<-(df$Primary_anaesthetic=="Medetomidine"|df$Secondary_anaesthetic== "Medetomidine")*1 
+df$Medetomidine[is.na(df$Medetomidine)]<-0 
+
+df$Zoletil<-rep(0, nrow(df))
+df$Zoletil<-(df$Primary_anaesthetic=="Zoletil"|df$Secondary_anaesthetic== "Zoletil")*1 
+df$Zoletil[is.na(df$Zoletil)]<-0 
+```
+
+```{r treatments_only_data_frame, include=FALSE}
+#Make a data frame includiong only studies that used treatments. Studies with no treatment but useable controls are used in a later analysis. 
+
+df_treatments <- df %>%
+  filter(Treatment != "None" &
+           !is.na(Infarct_mean_control) &
+           !is.na(Infarct_SD_control) &
+           !is.na(N_animals_control) &
+           !is.na(Infarct_mean_treatment) &
+           !is.na(Infarct_SD_treatment) &
+           !is.na(N_animals_treatment))
+
+```
+
+```{r removing_small_factors_data_frame, include=FALSE}
+#removing all factors from each variable that are used in fewer than 4 unique studies - this is for the dataframe being used to study treatment efficacy using meta-analysis.
+#These exclusions have been defined by the summary stats below
+
+df_reduced_treat <- df_treatments
+
+#Comorbidity
+df_reduced_treat <- df_reduced_treat %>%
+  filter(is.na(Comorbidity) | Comorbidity != "Amyloid plaques" &
+           Comorbidity != "Diabetes" &
+           Comorbidity != "Hyperglycemia" &
+           Comorbidity != "Lupus")
+
+#random allocation to groups
+df_reduced_treat <- df_reduced_treat %>%
+  filter(is.na(X3_Random_allocation) | X3_Random_allocation != "No")
+
+#Blinded allocation during stroke
+df_reduced_treat <- df_reduced_treat %>%
+  filter(is.na(X4_Blinded_allocation) | X4_Blinded_allocation != "No")
+
+#power calculation
+df_reduced_treat <- df_reduced_treat %>%
+  filter(is.na(X8_Power_calc) | X8_Power_calc != "No")
+
+#treatment time class
+df_reduced_treat <- df_reduced_treat %>%
+  filter(!is.na(Treatment_time_class))
+
+```
+
+## Summary statistics for visualising data + assessing collinearity
+```{r summary_stats, eval=FALSE, include=FALSE}
+#Checking some summary stats for making tables
+#note: eval=FALSE means R will not run this code chunk or include it in the final document
+summary(df)
+
+#summaries from subgroups
+
+#rat age and weight
+summary(df_Rat)
+summary(df_Rat$Sex)
+mean(df_Rat$Age_weeks_mean, na.rm=TRUE)
+sd(df_Rat$Age_weeks_mean, na.rm=TRUE)
+mean(df_Rat$Weight_g_mean, na.rm=TRUE)
+sd(df_Rat$Weight_g_mean, na.rm=TRUE)
+
+#mouse age and weight
+summary(df_Mouse)
+mean(df_Mouse$Age_weeks_mean, na.rm=TRUE)
+sd(df_Mouse$Age_weeks_mean, na.rm=TRUE)
+mean(df_Mouse$Weight_g_mean, na.rm=TRUE)
+sd(df_Mouse$Weight_g_mean, na.rm=TRUE)
+
+#rat light and RB model stats
+summary(df$Light_type)
+mean(df_Rat$Light_aperture, na.rm=TRUE)
+sd(df_Rat$Light_aperture, na.rm=TRUE)
+mean(df_Rat$Light_time, na.rm=TRUE)
+sd(df_Rat$Light_time, na.rm=TRUE)
+mean(df_Rat$Light_intensity_Wcm2, na.rm=TRUE)
+sd(df_Rat$Light_intensity_Wcm2, na.rm=TRUE)
+mean(df_Rat$Light_wavelength, na.rm=TRUE)
+sd(df_Rat$Light_wavelength, na.rm=TRUE)
+mean(df_Rat$RB_dose_mgkg, na.rm=TRUE)
+sd(df_Rat$RB_dose_mgkg, na.rm=TRUE)
+
+#mouse light and RB model stats
+mean(df_Mouse$Light_aperture, na.rm=TRUE)
+sd(df_Mouse$Light_aperture, na.rm=TRUE)
+mean(df_Mouse$Light_time, na.rm=TRUE)
+sd(df_Mouse$Light_time, na.rm=TRUE)
+mean(df_Mouse$Light_intensity_Wcm2, na.rm=TRUE)
+sd(df_Mouse$Light_intensity_Wcm2, na.rm=TRUE)
+mean(df_Mouse$Light_wavelength, na.rm=TRUE)
+sd(df_Mouse$Light_wavelength, na.rm=TRUE)
+mean(df_Mouse$RB_dose_mgkg, na.rm=TRUE)
+sd(df_Mouse$RB_dose_mgkg, na.rm=TRUE)
+
+#summary of some treatment info
+mean(df_Rat$Treatment_initial_hour, na.rm=TRUE)
+sd(df_Rat$Treatment_initial_hour, na.rm=TRUE)
+summary(df_Rat$Treatment_initial_hour)
+mean(df_Mouse$Treatment_initial_hour, na.rm=TRUE)
+sd(df_Mouse$Treatment_initial_hour, na.rm=TRUE)
+summary(df_Mouse$Treatment_initial_hour)
+
+
+
+##summaries from studies which investigated a treatment
+
+summary(df_treatments$Animal)
+
+#sex of animals
+tapply(df_treatments$Sex, df_treatments$Animal, summary)
+
+#median and range of age by species
+df_treatments %>% 
+  group_by(Animal) %>% 
+  summarise(median = median(Age_weeks_mean, na.rm=TRUE),
+            min = min(Age_weeks_min, na.rm=TRUE),
+            max = max(Age_weeks_max, na.rm=TRUE))
+
+#Comorbidities by species
+tapply(df_treatments$Comorbidity, df_treatments$Animal, summary)
+
+#median and range of control group n by species
+df_treatments %>% 
+  group_by(Animal) %>% 
+  summarise(median = median(N_animals_control, na.rm=TRUE),
+            min = min(N_animals_control, na.rm=TRUE),
+            max = max(N_animals_control, na.rm=TRUE))
+
+#median and range of treatment group n by species
+df_treatments %>% 
+  group_by(Animal) %>% 
+  summarise(median = median(N_animals_treatment, na.rm=TRUE),
+            min = min(N_animals_treatment, na.rm=TRUE),
+            max = max(N_animals_treatment, na.rm=TRUE))
+
+summary(df_treatments$Treatment_class)
+
+summary(df_treatments$Treatment_time_class)
+
+#Treatment administration time by each class
+tapply(df_treatments$Treatment_time_class, df_treatments$Treatment_class, summary)
+
+#specific treatment n in each treatment class
+tapply(df_treatments$Treatment, df_treatments$Treatment_class, summary) #this one is a long output
+
+
+```
+
+```{r summary_graphs, eval=FALSE, include=FALSE}
+#summary graphs for looking at and assessing the data visually before any meta-analyses. Helps with assessing how factors need to be handled for the meta-regression and starts to show possible areas of collinearity
+
+pdf("Summary_visuals_Publications_animal_1.pdf", height=6, width=8) #make pdf of following
+#publications over time by animal
+ggplot(df_UniqueStudies, aes(x=Year, fill=Animal)) + #use unique studies df so that each study is only counted once
+  geom_histogram(binwidth = 1) +
+  labs(title = "Publications over time") +
+  scale_x_continuous(breaks = seq(1980, 2020, 2)) + #x scale, start from 1980 and go to 2020, mark graph every 2 years
+  theme_classic() +
+  #scale_fill_brewer(palette = "PRGn")
+  scale_fill_viridis_d() #fill points with colour
+dev.off() #stop making the pdf of above code
+
+#graph for surgical levels
+summary(df$Surgical_level)
+df_treatments$Surgical_level <- factor(df_treatments$Surgical_level, levels = c('Scalp and skull intact','Scalp retracted, skull intact','Skull thinned','Skull breached','Cranial window (asleep induction)','Cranial window (awake induction)','Other','NR'))
+pdf("Summary_visuals_Surgical_levels_animal_fill_1.pdf", height=6, width=10) #make pdf of following
+ggplot(df_treatments, aes(x=Surgical_level, fill=Animal)) +
+  geom_bar() +
+  theme_bw() +
+  scale_fill_brewer(palette = "PRGn") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  scale_fill_viridis_d()
+dev.off() #stop making the pdf of above code
+
+#graph for age of animals (collinearity)
+pdf("Summary_visuals_Stripplot_age_animals_1.pdf", height=4, width=8)
+ggplot(df_treatments, aes(x=Age_weeks_mean, y=Animal, colour=Animal)) +
+  geom_jitter(position = position_jitterdodge(dodge.width = 3, jitter.width = 3), #stop them sitting on top of each other in flat line, this tells size of jitter
+           size = 2, #size of points
+           alpha = 0.5) +
+  scale_colour_viridis_d() +
+  labs(x="Mean age in weeks") +
+  theme_classic()
+dev.off()
+
+#graph for age and comorbidities (collinearity)
+pdf("Summary_visuals_Stripplot_age_comorbidity_1.pdf", height=4, width=8)
+ggplot(df_treatments, aes(x=Age_weeks_mean, y=Comorbidity, colour=Comorbidity)) +
+  geom_jitter(position = position_jitterdodge(dodge.width = 3, jitter.width = 3), #stop them sitting on top of each other in flat line, this tells size of jitter
+           size = 2, #size of points
+           alpha = 0.5) +
+  scale_colour_viridis_d() +
+  labs(x="Mean age in weeks") +
+  theme_classic()
+dev.off()
+
+#graph for sex of animals
+pdf("Summary_visuals_Sex_1.pdf")
+ggplot(df, aes(x=forcats::fct_infreq(Sex))) +
+  geom_bar(fill = "light blue") +
+  theme_bw() +
+  geom_text(stat="count", aes(label=..count..), vjust=-1) +
+  labs(x = "Sex of animals")
+dev.off()
+
+#graph for comorbidities
+pdf("Summary_visuals_Comorbidities_1.pdf")
+ggplot(df, aes(forcats::fct_infreq(Comorbidity), fill=Animal)) +
+  geom_bar() +
+  theme_bw() +
+  #theme(legend.position="none") + #remove colour legend
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + #turn labels sideways
+  #geom_text(stat="count", aes(label=..count..), vjust=-1) + #add number labels
+  scale_fill_brewer(palette = "PRGn") +
+  labs(x = "Comorbidities included in study")
+dev.off()
+
+#making a graph of anaesthetics (total) by animal
+pdf("Summary_visuals_Anaesthetic_1.pdf") #make pdf of the following code
+#grapgh of anaesthetics
+ggplot(df, aes(forcats::fct_infreq(Anaesthetic), fill = Animal)) + 
+  geom_bar() + 
+  theme_bw() + 
+  #theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  #geom_text(stat="count", aes(label=..count..), vjust=-1) +
+  labs(x = "Anaesthetic") +
+  scale_fill_brewer(palette = "PRGn") +
+  coord_flip()
+dev.off() #stop making the pdf of above code
+
+
+#animals in database
+pdf("Summary_visuals_Animals_1.pdf")
+ggplot(df, aes(x=forcats::fct_infreq(Animal))) +
+  geom_bar(fill = "light blue") +
+  theme_bw() +
+  #scale_colour_brewer(palette = "PRGn") +
+  geom_text(stat="count", aes(label=..count..), vjust=-1) +
+  labs(x="Animal Species")
+dev.off()
+
+#graph of age spread (rodents only)
+pdf("Summary_visuals_Rodent_ages_1.pdf")
+ggplot(df_Rodent, aes(x=Age_weeks_mean, y = Animal, fill = Animal)) +
+  geom_boxplot() +
+  theme_bw() +
+  #scale_fill_brewer(palette = "PRGn") +
+  theme(legend.position="none") + #remove colour legend
+  labs(x= "Mean age in weeks") +
+  scale_x_continuous(breaks = seq(0,140, by=10))
+dev.off()
+
+#graph of weight spread (rodents only)
+pdf("Summary_visuals_Rodent_weight_1.pdf")
+ggplot(df_Rodent, aes(x=Weight_g_mean, y = Animal, fill = Animal)) +
+  geom_boxplot() +
+  theme_bw() +
+  #scale_fill_brewer(palette = "PRGn") +
+  theme(legend.position="none") + #remove colour legend
+  labs(x= "Mean weight in grams") +
+  scale_x_continuous(breaks = seq(0,700, by=50))
+dev.off()
+
+#graph of treatment time class
+pdf("Summary_visuals_Treatment_time_class_1.pdf")
+ggplot(df, aes(Treatment_time_class, fill=Animal)) +
+  geom_bar() +
+  theme_bw() +
+  #theme(legend.position="none") + #remove colour legend
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + #turn labels sideways
+  #geom_text(stat="count", aes(label=..count..), vjust=-1) + #add number labels
+  scale_fill_brewer(palette = "PRGn") +
+  labs(x = "Time of treatment administration") +
+  scale_x_discrete(limits = c("Before stroke", 
+                              "During stroke", 
+                              "After stroke", 
+                              NA)) #reorder the x axis
+dev.off()
+
+#graph of treatment types
+pdf("Summary_visuals_Treatment_types_1.pdf", height = 6, width = 7)
+ggplot(df_treatments, aes(forcats::fct_infreq(Treatment_class), fill=Animal)) +
+  geom_bar() +
+  theme_classic() +
+  #theme(legend.position="none") + #remove colour legend
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + #turn labels sideways
+  #geom_text(stat="count", aes(label=..count..), vjust=-1) + #add number labels
+  scale_fill_brewer(palette = "PRGn") +
+  labs(x = "Class of treatment") +
+   scale_fill_viridis_d()
+dev.off()
+
+```
+
+```{r assessing_collinearity, eval=FALSE, include=FALSE}
+
+pdf("Collinearity_plot_all_factors_1.pdf", height=20, width=20)
+model.matrix(~Surgical_level +
+               Animal+
+               Comorbidity+
+               Sex+
+                       Nitrous_oxide +
+                       Chloral_hydrate +
+                       Sodium_pentobarbital +
+                       Enflurane +
+                       Light_aperture +
+                       Light_source +
+                       Infarct_time +
+                       Infarct_measurement +
+                       Treatment_class +
+                       X2_Body_temp +
+                       X3_Random_allocation +
+                       X4_Blinded_allocation +
+                       X5_Blinded_assessment +
+                       X8_Power_calc, 
+             data=df_treatments) %>% cor(use="pairwise.complete.obs") %>% 
+  ggcorrplot(show.diag = F, type="lower", lab=TRUE, lab_size=2)
+
+dev.off()
+
+#collinearity between animal species and weight, comorbidity and age, and more
+
+pdf("Collinearity_plot_quality_1.pdf", height=5, width=5)
+model.matrix(~X2_Body_temp +
+                       X3_Random_allocation +
+                       X4_Blinded_allocation +
+                       X5_Blinded_assessment +
+                       X8_Power_calc, 
+             data=df_treatments) %>% cor(use="pairwise.complete.obs") %>% 
+  ggcorrplot(show.diag = F, type="lower", lab=TRUE, lab_size=2)
+
+dev.off()
+
+#major collinearity between all five quality indicators
+
+```
+
+```{r unique_instance_tally, eval=FALSE, include=FALSE}
+#Code for finding total number of certain variables by unique papers (not by experiments)
+#use this for creating summary tables. Swap out factors and factor levels where needed.
+
+#making a function called "how.many" to find how many instances there are of a certain factor by unique publications, not total number
+how.many<-function(column, attribute, dataf){
+
+    studies<-dataf[dataf[, print(column)] ==attribute,c("Publication_code",print(column))]
+
+  print(attribute)
+  print(nrow(table(studies)))
+}
+
+#first argument is column you want to look at, second argument is specific factor to find n of, third is dataframe
+#example for treatments df
+how.many("Primary_anaesthetic", "Zoletil", df_treatments)
+how.many("Secondary_anaesthetic", "Zoletil", df_treatments)
+
+how.many("Surgical_level", "NR", df_treatments)
+
+how.many("Treatment_class", "Nootropics/cognition", df_reduced_treat)
+
+#checking how many unique publications there are overall in different data frames
+nlevels(as.factor(df$Publication_code)) #number of levels (so unique publications) overall
+nlevels(as.factor(df_treatments$Publication_code)) #count for treatments only
+nlevels(as.factor(df_reduced_treat$Publication_code)) #count for meta-analysis dataset
+
+```
+
+
+## Evaluating Treatment Efficacy using Meta-Analysis
+
+Part one of analysis - Does treatment efficacy change with surgical severity?
+
+```{r Standard_mean_differences, include=FALSE}
+#calculate standard mean difference, m=mean, sd=standard dev, n=n of animals for group 1 (control) and 2 (treatment)
+
+#calculating standardised mean differences on reduced dataset
+df_reduced_SMD <- escalc(data=df_reduced_treat, 
+               measure = "SMD", 
+               m1i = Infarct_mean_treatment,
+               sd1i = Infarct_SD_treatment,
+               n1i = N_animals_treatment,
+               m2i = Infarct_mean_control,
+               sd2i = Infarct_SD_control,
+               n2i = N_animals_control)
+
+#calculating standardised mean differences on full dataset to use in funnel plots
+df_treatments_SMD <- escalc(data=df_treatments, 
+               measure = "SMD", 
+               m1i = Infarct_mean_treatment,
+               sd1i = Infarct_SD_treatment,
+               n1i = N_animals_treatment,
+               m2i = Infarct_mean_control,
+               sd2i = Infarct_SD_control,
+               n2i = N_animals_control)
+```
+
+```{r factor_levels_order_treatment, include=FALSE}
+#changing order of variables that are included in meta-regression 
+
+#Comorbidity
+summary(df_reduced_SMD$Comorbidity)
+df_reduced_SMD$Comorbidity <- factor(df_reduced_SMD$Comorbidity, levels = c('None','Aged','Amyloid plaques','Chronic colitis','Diabetes','Hyperglycemia','Hypertension','Immunodeficiency' ,'Lupus','Obesity'))
+df_reduced_SMD$Comorbidity <- factor(df_reduced_SMD$Comorbidity)
+
+#time of treatment (class)
+summary(df_reduced_SMD$Treatment_time_class)
+df_reduced_SMD$Treatment_time_class <- factor(df_reduced_SMD$Treatment_time_class, levels = c('After stroke','During stroke','Before stroke','NR'))
+# df_reduced_SMD$Treatment_time_class <- factor(df_reduced_SMD$Treatment_time_class, levels = c('Before stroke','During stroke','After stroke','NR'))
+df_reduced_SMD$Treatment_time_class <- factor(df_reduced_SMD$Treatment_time_class)
+
+#class of treatment
+summary(df_reduced_SMD$Treatment_class)
+df_reduced_SMD$Treatment_class <- factor(df_reduced_SMD$Treatment_class, levels = c('Other','Anti-apoptosis/regeneration','Anti-inflammation','Anti-oxidants','Blood flow','Energy substrates','Excitotoxicity','Multiple mechanisms','Nootropics/cognition','Thrombolytics', 'Harm induction'))
+df_reduced_SMD$Treatment_class <- factor(df_reduced_SMD$Treatment_class)
+
+#infarct measurement time
+summary(df_reduced_SMD$Infarct_time_class_24) #made earlier in variable creation, 24 hrs or before = 0, >24 hours = 1
+df_reduced_SMD$Infarct_time_class_24_inverted <- (df_reduced_SMD$Infarct_time_class_24-1)^2 #invert this so 24 hrs or before = 1, >24 hours = 0 then the model will use 0 as the baseline 
+summary(df_reduced_SMD$Infarct_time_class_24_inverted)
+df_reduced_SMD$Infarct_time_class_24_inverted <- factor(df_reduced_SMD$Infarct_time_class_24_inverted)
+
+#body temperature controlled during surgery
+summary(df_reduced_SMD$X2_Body_temp)
+df_reduced_SMD$X2_Body_temp <- factor(df_reduced_SMD$X2_Body_temp, levels = c('NR','Yes','No'))
+df_reduced_SMD$X2_Body_temp <- factor(df_reduced_SMD$X2_Body_temp)
+
+#random allocation to groups
+levels(df_reduced_SMD$X3_Random_allocation)
+summary(df_reduced_SMD$X3_Random_allocation)
+df_reduced_SMD$X3_Random_allocation <- factor(df_reduced_SMD$X3_Random_allocation, levels = c('NR','Yes','No'))
+df_reduced_SMD$X3_Random_allocation <- factor(df_reduced_SMD$X3_Random_allocation)
+
+#researchers blinded to group allocation during surgery
+levels(df_reduced_SMD$X4_Blinded_allocation)
+summary(df_reduced_SMD$X4_Blinded_allocation)
+df_reduced_SMD$X4_Blinded_allocation <- factor(df_reduced_SMD$X4_Blinded_allocation, levels = c('NR','Yes','No'))
+df_reduced_SMD$X4_Blinded_allocation <- factor(df_reduced_SMD$X4_Blinded_allocation)
+
+#blinded to group during outcome assessment
+levels(df_reduced_SMD$X5_Blinded_assessment)
+summary(df_reduced_SMD$X5_Blinded_assessment)
+df_reduced_SMD$X5_Blinded_assessment <- factor(df_reduced_SMD$X5_Blinded_assessment, levels = c('NR','Yes','No'))
+df_reduced_SMD$X5_Blinded_assessment <- factor(df_reduced_SMD$X5_Blinded_assessment)
+
+#power calculation for sample size
+levels(df_reduced_SMD$X8_Power_calc)
+summary(df_reduced_SMD$X8_Power_calc)
+df_reduced_SMD$X8_Power_calc <- factor(df_reduced_SMD$X8_Power_calc, levels = c('NR','Yes','No'))
+df_reduced_SMD$X8_Power_calc <- factor(df_reduced_SMD$X8_Power_calc)
+
+
+# Not included in the meta-regression due to collinearity issues
+
+# #surgical severity level
+# summary(df_reduced_SMD$Surgical_level)
+# df_reduced_SMD$Surgical_level <- factor(df_reduced_SMD$Surgical_level, levels = c('Scalp and skull intact','Scalp retracted, skull intact','Skull thinned','Skull breached','Cranial window (asleep induction)','Cranial window (awake induction)','Other','NR'))
+# df_reduced_SMD$Surgical_level <- factor(df_reduced_SMD$Surgical_level) #doing this drops any levels that are empty that were inherited from a previous dataset
+# 
+# #animal species
+# summary(df_reduced_SMD$Animal)
+# df_reduced_SMD$Animal <- factor(df_reduced_SMD$Animal, levels = c('Rat','Mouse','Guinea Pig','Rabbit','Primate','Zebrafish'))
+# df_reduced_SMD$Animal <- factor(df_reduced_SMD$Animal) #doing this drops any levels that are empty that were inherited from a previous dataset
+
+```
+
+```{r meta_regression_treatment_efficacy}
+#meta-regression for treatment outcome efficacy - only using variables that a-priori make sense to affect treatment efficacy
+met_signif <- rma.mv(data = df_reduced_SMD,
+                     yi = yi,
+                     V = vi,
+                     mods = ~
+                       Comorbidity +
+                       Treatment_time_class + 
+                       Treatment_class +
+                       Infarct_time_class_24_inverted +
+                       X2_Body_temp +
+                       X3_Random_allocation +
+                       X4_Blinded_allocation +
+                       X5_Blinded_assessment +
+                       X8_Power_calc,
+                     random = ~ 1 | Publication_code,
+                     slab=paste(Publication_code, Comparison_identifier, sep="_"))
+
+
+summary(met_signif)
+predict(met_signif)
+
+sink(file = "rma.mv_output.txt")
+met_signif_text <- summary(met_signif)
+met_signif_text
+sink(NULL)
+
+
+#fit the best model - multi-model inference
+res_signif <- dredge(met_signif, trace=2) #the full model with coefficients that have been weighted based on the stepwise AIC
+res_signif_subset <- subset(res_signif, delta <= 2, recalc.weights=FALSE)#display model selection table and select only models with delta < 2
+
+sum_signif <- summary(model.avg(res_signif_subset, revised.var=FALSE)) #model coefficients
+sum_signif$msTable
+sum_signif$coefficients #the coefficients of the model (one per variable) take only the "full" ones, exclude the "subset" ones as these are from a stepwise model (selecting just the top model) instead of from the full model with weighted coefficients
+
+summary(sum_signif)
+
+```
+
+A separate analysis replacing the 5 quality variables with one summed quality variable to try and account for collinearity.
+```{r Summed_quality_meta_regression}
+
+df_reduced_SMD$Quality_summed <- factor(df_reduced_SMD$Quality_summed) 
+#make numeric summed quality score a factor so the model does not try to fit a linear relationship to it
+
+met_signif_quality <- rma.mv(data = df_reduced_SMD,
+                     yi = yi,
+                     V = vi,
+                     mods = ~
+                       Comorbidity +
+                       Treatment_time_class + 
+                       Treatment_class +
+                       Infarct_time_class_24_inverted +
+                       Quality_summed,
+                     random = ~ 1 | Publication_code,
+                     slab=paste(Publication_code, Comparison_identifier, sep="_"))
+
+summary(met_signif_quality)
+
+sink(file = "rma.mv_quality_summed_output.txt")
+met_signif_quality_text <- summary(met_signif)
+met_signif_quality_text
+sink(NULL)
+
+#fit the best model
+res_signif_quality <- dredge(met_signif_quality, trace=2) #the full model with coefficients that have been weighted based on the stepwise AIC
+res_signif_quality_subset <- subset(res_signif_quality, delta <= 2, recalc.weights=FALSE)#select only models with a delta <= 2
+
+#The dredge for this model select only the first model containing all 5 predictor variables. Therefor the multi-model inference is not needed for this meta-regression, the original rma.mv should be used
+
+# sum_signif_quality <- summary(model.avg(res_signif_quality_subset, revised.var=FALSE)) #model coefficients
+#sum_signif_quality$msTable
+# sum_signif_quality$coefficients #the coefficients of the model (one per variable) take only the "full" ones, exclude the "subset" ones as these are from a stepwise model (selecting just the top model) instead of from the full model with weighted coefficients
+# summary(sum_signif_quality)
+
+
+```
+
+
+Posthoc analyses for treatment efficacy
+```{r posthocs_treatment_setup, include=FALSE}
+#Doing post hoc analyses to compare all categorical variables in meta-regression to each other instead of to a baseline
+
+##THIS IS ON THE RMA.MV NOT ON THE DREDGE - won't work with the multi-model inference output
+
+model<-met_signif #put the full model that went into the dredge - somehow change later to dredge?
+
+Summary.post.hoc<-summary(glht(model, linfct=cbind(contrMat(rep(1,length(coef(model))), type="Tukey"))), test=adjusted("none")) #linfc creates the comparison matrix - is comparing every level to each other though
+#adjusted none is because we are currently comparing things that make no sense (eg light to treatment) - will adjust later
+
+#take out the p values, coefficients, t statistic, standard error, and comparisons (in row names) from the summary
+post.hoc<-data.frame(Summary.post.hoc$test[c(3,4,5,6)])
+post.hoc$comparison<-rownames(post.hoc)
+
+#for re-labelling the comparisons with our factor names
+#remove the dash and create new object that lists the numbers one after another (so "1-2" becomes "1", "2")
+num<-unlist(strsplit(post.hoc$comparison, " - "))
+#Loop: creates variable with comparisons listed with factor names instead of numbers
+#see onenote for this loop explained
+Comparisons<-rep("NN", length(post.hoc$comparison))
+j<-1 
+for(i in seq(1,length(num), by=2)){
+  
+  Comparisons[j]<-paste((names(coef(model)))[as.numeric(num[i])]," vs ",(names(coef(model)))[as.numeric(num[i+1])])
+  j<-j+1
+}
+
+#cbind = column bind, add this column to end of existing dataframe
+df.posthoc.final<-cbind(post.hoc,Comparisons)
+```
+
+```{r posthocs_treatment_effiacy}
+# Select and correct
+#select comparisons that make sense - do this for each individual variable group (eg all treatments) and correct within each group
+
+## Treatment class post hoc
+#this uses library(dplyr) library(stringr) but they're already loaded in tidyverse - search for rows that contain the specified string twice, so only comparisons in same group + rows that contain the variable of interest vs intrcpt as that is the baseline value for every variable
+df.posthoc.Treatments <- df.posthoc.final %>%
+    filter(str_count(Comparisons, "Treatment_class") == 2 | 
+             (str_detect(Comparisons, "intrcpt") & str_detect(Comparisons, "Treatment_class"))) #select comparisons
+#adjust p values within this group and add them to a new variable
+df.posthoc.Treatments$P.adjust<-p.adjust(df.posthoc.Treatments$pvalues, method="holm")
+
+##Comorbidities post hoc
+df.posthoc.Comorbidity <- df.posthoc.final %>%
+    filter(str_count(Comparisons, "Comorbidity") == 2 | 
+             (str_detect(Comparisons, "intrcpt") & str_detect(Comparisons, "Comorbidity")))
+df.posthoc.Comorbidity$P.adjust<-p.adjust(df.posthoc.Comorbidity$pvalues, method="holm")
+
+#treatment time class
+df.posthoc.Treatment_time_class <- df.posthoc.final %>%
+    filter(str_count(Comparisons, "Treatment_time_class") == 2 | 
+             (str_detect(Comparisons, "intrcpt") & str_detect(Comparisons, "Treatment_time_class")))
+df.posthoc.Treatment_time_class$P.adjust<-p.adjust(df.posthoc.Treatment_time_class$pvalues, method="holm")
+
+#infarct measurement class
+df.posthoc.Infarct_time_class_24_inverted <- df.posthoc.final %>%
+    filter(str_count(Comparisons, "Infarct_time_class_24_inverted") == 2 | 
+             (str_detect(Comparisons, "intrcpt") & str_detect(Comparisons, "Infarct_time_class_24_inverted")))
+df.posthoc.Infarct_time_class_24_inverted$P.adjust<-p.adjust(df.posthoc.Infarct_time_class_24_inverted$pvalues, method="holm")
+
+##Quality marker body temperature post hoc
+df.posthoc.Bodytemp <- df.posthoc.final %>%
+    filter(str_count(Comparisons, "X2_Body_temp") == 2 | 
+             (str_detect(Comparisons, "intrcpt") & str_detect(Comparisons, "X2_Body_temp")))
+df.posthoc.Bodytemp$P.adjust<-p.adjust(df.posthoc.Bodytemp$pvalues, method="holm")
+
+##Quality marker randomisation post hoc
+df.posthoc.Randomisation <- df.posthoc.final %>%
+    filter(str_count(Comparisons, "X3_Random_allocation") == 2 | 
+             (str_detect(Comparisons, "intrcpt") & str_detect(Comparisons, "X3_Random_allocation")))
+df.posthoc.Randomisation$P.adjust<-p.adjust(df.posthoc.Randomisation$pvalues, method="holm")
+
+##Quality marker blind to group allocation during surgery post hoc
+df.posthoc.BlindA <- df.posthoc.final %>%
+    filter(str_count(Comparisons, "X4_Blinded_allocation") == 2 | 
+             (str_detect(Comparisons, "intrcpt") & str_detect(Comparisons, "X4_Blinded_allocation")))
+df.posthoc.BlindA$P.adjust<-p.adjust(df.posthoc.BlindA$pvalues, method="holm")
+
+##Quality marker blinded outcome assessment post hoc
+df.posthoc.BlindOut <- df.posthoc.final %>%
+    filter(str_count(Comparisons, "X5_Blinded_assessment") == 2 | 
+             (str_detect(Comparisons, "intrcpt") & str_detect(Comparisons, "X5_Blinded_assessment")))
+df.posthoc.BlindOut$P.adjust<-p.adjust(df.posthoc.BlindOut$pvalues, method="holm")
+
+##Quality marker blinded outcome assessment post hoc
+df.posthoc.Power <- df.posthoc.final %>%
+    filter(str_count(Comparisons, "X8_Power_calc") == 2 | 
+             (str_detect(Comparisons, "intrcpt") & str_detect(Comparisons, "X8_Power_calc")))
+df.posthoc.Power$P.adjust<-p.adjust(df.posthoc.Power$pvalues, method="holm")
+# #checking correct comparisons were used
+# data.frame(coef(met_signif))
+```
+
+Quality table Fisher's Exact
+```{r Quality_markers_by_decade_stats, include=FALSE}
+#Taking the quality markers by decade and running each marker through a Fisher's exact test to see if the ratio of increase over the years is consistent or not (not using chi squared as we have zeroes)
+#cutting down to only one of each publication code (so down to publications, not experiments) 
+#DO NOT USE FOR ANYTHING ELSE as this will take just the first experiment for every publication, it is only being used to sum quality as these were allocated to each publication, not each experiment.
+df_treatments_unique_quality <- df_treatments[!duplicated(df_treatments$Publication_code),] 
+#235 unique publications ^
+
+#total number of studies each decade
+summary(df_treatments_unique_quality$Decade)
+Total<-c(6,40,67,122)
+
+
+# power calc
+tapply(df_treatments_unique_quality$X8_Power_calc, df_treatments_unique_quality$Decade, summary)
+Power<-c(0,0,2,15) #number of studies which did power calc per decade
+Power_table<-as.table(cbind(Power,Total-Power))
+Power_FE<-fisher.test(Power_table)
+Power_FE
+
+#randomisation
+tapply(df_treatments_unique_quality$X3_Random_allocation, df_treatments_unique_quality$Decade, summary)
+Rand<-c(0,8,16,67) #number of studies which randomised per decade
+Rand_table<-as.table(cbind(Rand,Total-Rand))
+Rand_FE<-fisher.test(Rand_table)
+Rand_FE
+
+#blinding
+tapply(df_treatments_unique_quality$X5_Blinded_assessment, df_treatments_unique_quality$Decade, summary)
+Blind<-c(1,11,31,65) #number of studies which blinded per decade
+Blind_table<-as.table(cbind(Blind,Total-Blind))
+Blind_FE<-fisher.test(Blind_table)
+Blind_FE
+
+#allocation concealment
+tapply(df_treatments_unique_quality$X4_Blinded_allocation, df_treatments_unique_quality$Decade, summary)
+AlloC<-c(0,3,11,36) #number of studies which concealed allocation (blinded surgery) per decade
+AlloC_table<-as.table(cbind(AlloC,Total-AlloC))
+AlloC_FE<-fisher.test(AlloC_table)
+AlloC_FE
+
+#body temp control
+tapply(df_treatments_unique_quality$X2_Body_temp, df_treatments_unique_quality$Decade, summary)
+Temp<-c(3,32,57,72) #number of studies which controlled body temp per decade
+Temp_table<-as.table(cbind(Temp,Total-Temp))
+Temp_FE<-fisher.test(Temp_table)
+Temp_FE
+
+```
+
+
+
+## Subgroup analysis: Significant treatment classes
+
+Taking the four treatment classes that were highly significant and analysing more:
+Anti-oxidants, Anti-inflammation, Anti-apoptosis/Regeneration, and Blood flow.
+
+```{r efficacious_treatments_by_administration_time_analysis}
+#
+efficacious_treatments<-c("Anti-oxidants", "Anti-inflammation", "Blood flow", "Anti-apoptosis/regeneration")
+
+#select only treatments in one of the 4 efficacious groups
+df_reduced_SMD_efficacious<-df_reduced_SMD[df_reduced_SMD$Treatment_class %in% efficacious_treatments,]
+#remove not reportes
+df_reduced_SMD_efficacious_limited<-df_reduced_SMD_efficacious[df_reduced_SMD_efficacious$Treatment_time_class!="NR",]
+
+#drop empty levels
+df_reduced_SMD_efficacious_limited$Treatment_class<-droplevels(df_reduced_SMD_efficacious_limited$Treatment_class)
+df_reduced_SMD_efficacious_limited$Treatment_time_class<-droplevels(df_reduced_SMD_efficacious_limited$Treatment_time_class)
+
+
+# Predicting time class by treatment class using multi-level linear model (choose to weight by vi (standard error)), takes into account publication code as a random variable
+met_efficacious <- lmer(
+  yi~ 
+    #Comorbidity+ #not enough left in the factor levels to analyse
+    Treatment_time_class*Treatment_class +
+    Infarct_time_class_24_inverted +
+    X2_Body_temp +
+    X3_Random_allocation +
+    X4_Blinded_allocation +
+    X5_Blinded_assessment +
+    X8_Power_calc +
+  (1|Publication_code), 
+  weights=vi, 
+  data = df_reduced_SMD_efficacious_limited)
+
+summary(met_efficacious)
+
+
+Predict_matrix_efficacious<-expand.grid(Treatment_time_class = as.factor(unique(df_reduced_SMD_efficacious_limited$Treatment_time_class)),
+                                       Treatment_class = as.factor(unique(df_reduced_SMD_efficacious_limited$Treatment_class)),
+                                       Infarct_time_class_24_inverted=as.factor(0),  
+                                       X2_Body_temp ="NR",
+                                       X3_Random_allocation="NR",
+                                       X4_Blinded_allocation="NR",
+                                       X5_Blinded_assessment="NR",
+                                       X8_Power_calc="NR",
+                                       Publication_code=df_reduced_SMD_efficacious_limited$Publication_code[5] #choose a completely random pub code
+                                       )
+
+#make predictions using model and assumed baseline data
+Predicted_values <- predictInterval(met_efficacious, newdata=Predict_matrix_efficacious)
+
+#combine the data we input with the predicted values
+Predicted_data_efficacious<-cbind(Predicted_values,Predict_matrix_efficacious)
+
+#make a variable in Predicted_data_efficacious dataframe to combine the two factors of interest in a way where their names will match model_summary_efficacious
+Predicted_data_efficacious$Interaction_variables <- paste(Predicted_data_efficacious$Treatment_time_class,Predicted_data_efficacious$Treatment_class, sep=":")
+Predicted_data_efficacious$Interaction_variables <- factor(Predicted_data_efficacious$Interaction_variables)
+
+#Extract linear model details into a data frame
+model_summary_efficacious<-data.frame(unlist(summary(met_efficacious)$coefficients))
+#extract the row names into a variable
+model_summary_efficacious$Variables<-rownames(model_summary_efficacious)
+
+#remove strings which are describing the factor each level is from, and add strings to make the baseline variables more descriptive of what they actually represent
+model_summary_efficacious$Variables<-gsub("Treatment_time_class", "", model_summary_efficacious$Variables)
+model_summary_efficacious$Variables<-gsub("Treatment_class", "", model_summary_efficacious$Variables)
+#make a factor to change level names
+model_summary_efficacious$Variables <- factor(model_summary_efficacious$Variables)
+levels(model_summary_efficacious$Variables)[levels(model_summary_efficacious$Variables)=="Anti-inflammation"]<-"After stroke:Anti-inflammation"
+levels(model_summary_efficacious$Variables)[levels(model_summary_efficacious$Variables)=="Anti-oxidants"]<-"After stroke:Anti-oxidants"
+levels(model_summary_efficacious$Variables)[levels(model_summary_efficacious$Variables)=="Blood flow"]<-"After stroke:Blood flow"
+levels(model_summary_efficacious$Variables)[levels(model_summary_efficacious$Variables)=="(Intercept)"]<-"After stroke:Anti-apoptosis/regeneration"
+levels(model_summary_efficacious$Variables)[levels(model_summary_efficacious$Variables)=="Before stroke"]<-"Before stroke:Anti-apoptosis/regeneration"
+levels(model_summary_efficacious$Variables)[levels(model_summary_efficacious$Variables)=="During stroke"]<-"During stroke:Anti-apoptosis/regeneration"
+
+
+#make an empty column for degrees of freedom in our predicted dataframe and fill with 99999
+Predicted_data_efficacious$df<-99999
+
+#factor levels are different between the variables so make sure they have the same levels (force predicted to have empty levels same as model)
+Predicted_data_efficacious$Interaction_variables <- factor(Predicted_data_efficacious$Interaction_variables, levels = levels(model_summary_efficacious$Variables))
+
+#check each interaction in predicted dataframe against the Variables in the model output dataframe, where they match up, copy the degrees of freedom from the model into the predicted dataframe
+for (i in 1:nrow(Predicted_data_efficacious)){
+
+  variable <- Predicted_data_efficacious[i,"Interaction_variables"]
+  
+  df<- model_summary_efficacious$df[model_summary_efficacious$Variables==variable]
+  
+  Predicted_data_efficacious[i, "df"]<-df
+  
+}
+
+options(scipen=999)#force to print in fixed notation not scientific notation
+#check for statistical significance of predicted interactions (difference from SMD of 0)
+Predicted_data_efficacious$Tscore<-Predicted_data_efficacious$fit/((Predicted_data_efficacious$fit-Predicted_data_efficacious$upr)/1.96) #take 95%CI and convert to standard error (x1.96)
+Predicted_data_efficacious$p.value<-round(pt(Predicted_data_efficacious$Tscore, df=Predicted_data_efficacious$df, lower.tail = F),4)
+
+
+
+```
+
+```{r administration_time_alone_analysis}
+#Predicting just administration time class
+
+met_efficacious_time <- lmer(
+  yi~ 
+    #Comorbidity+ #not enough left in the factor levels to analyse
+    Treatment_time_class + #no interaction, just administration time
+    Infarct_time_class_24_inverted +
+    X2_Body_temp +
+    X3_Random_allocation +
+    X4_Blinded_allocation +
+    X5_Blinded_assessment +
+    X8_Power_calc +
+    (1|Publication_code), 
+  weights=vi, 
+  data = df_reduced_SMD_efficacious_limited)
+
+summary((met_efficacious_time))
+
+
+Predict_matrix_time<-expand.grid(Treatment_time_class = as.factor(unique(df_reduced_SMD_efficacious_limited$Treatment_time_class)),
+                                       #Treatment_class = as.factor(unique(df_reduced_SMD_efficacious_limited$Treatment_class)), #not in this model
+                                       Infarct_time_class_24_inverted=as.factor(0),  
+                                       X2_Body_temp ="NR",
+                                       X3_Random_allocation="NR",
+                                       X4_Blinded_allocation="NR",
+                                       X5_Blinded_assessment="NR",
+                                       X8_Power_calc="NR",
+                                       Publication_code=df_reduced_SMD_efficacious_limited$Publication_code[5] #choose a completely random pub code
+                                 )
+
+
+#make predictions using model and assumed baseline data
+Predicted_time<-predictInterval(met_efficacious_time, newdata=Predict_matrix_time)
+
+#combine the data we input with the predicted values
+Predicted_data_time<-cbind(Predicted_time,Predict_matrix_time)
+
+
+#Extract linear model details into a data frame
+model_summary_time<-data.frame(unlist(summary(met_efficacious_time)$coefficients))
+#extract the row names into a variable
+model_summary_time$Variables<-rownames(model_summary_time)
+#remove strings which are describing the factor each level is from, and add strings to make the baseline variables more descriptive of what they actually represent
+model_summary_time$Variables<-gsub("Treatment_time_class", "", model_summary_time$Variables)
+#make a factor to change level names
+model_summary_time$Variables <- factor(model_summary_time$Variables)
+levels(model_summary_time$Variables)[levels(model_summary_time$Variables)=="(Intercept)"]<-"After stroke"
+
+#make an empty column for degrees of freedom in our predicted dataframe and fill with 99999
+Predicted_data_time$df<-99999
+
+#factor levels are different between the variables so make sure they have the same levels (force predicted to have empty levels same as model)
+Predicted_data_time$Treatment_time_class <- factor(Predicted_data_time$Treatment_time_class, levels = levels(model_summary_time$Variables))
+
+#check each interaction in predicted dataframe against the Variables in the model output dataframe, where they match up, copy the degrees of freedom from the model into the predicted dataframe
+for (i in 1:nrow(Predicted_data_time)){
+
+  variable <- Predicted_data_time[i,"Treatment_time_class"]
+  
+  df<- model_summary_time$df[model_summary_time$Variables==variable]
+  
+  Predicted_data_time[i, "df"]<-df
+  
+}
+
+#check for statistical significance of predicted interactions (difference from SMD of 0)
+Predicted_data_time$Tscore<-Predicted_data_time$fit/((Predicted_data_time$fit-Predicted_data_time$upr)/1.96) #take 95%CI and convert to standard error (x1.96)
+Predicted_data_time$p.value<-round(pt(Predicted_data_time$Tscore, df=Predicted_data_time$df, lower.tail = F),4)
+
+
+```
+
+```{r efficacious_treatments_alone_analysis}
+#Predicting just efficacious treatment classes
+
+met_efficacious_treat <- lmer(
+  yi~ 
+    #Comorbidity+ #not enough left in the factor levels to analyse
+    Treatment_class + #no interaction, just treatment class
+    Infarct_time_class_24_inverted +
+    X2_Body_temp +
+    X3_Random_allocation +
+    X4_Blinded_allocation +
+    X5_Blinded_assessment +
+    X8_Power_calc +
+    (1|Publication_code), 
+  weights=vi, 
+  data = df_reduced_SMD_efficacious_limited)
+
+summary((met_efficacious_treat))
+
+
+Predict_matrix_treat<-expand.grid(#Treatment_time_class = as.factor(unique(df_reduced_SMD_efficacious_limited$Treatment_time_class)), #not in this model
+                                       Treatment_class = as.factor(unique(df_reduced_SMD_efficacious_limited$Treatment_class)), 
+                                       Infarct_time_class_24_inverted=as.factor(0),  
+                                       X2_Body_temp ="NR",
+                                       X3_Random_allocation="NR",
+                                       X4_Blinded_allocation="NR",
+                                       X5_Blinded_assessment="NR",
+                                       X8_Power_calc="NR",
+                                       Publication_code=df_reduced_SMD_efficacious_limited$Publication_code[5] #choose a completely random pub code
+                                 )
+
+
+#make predictions using model and assumed baseline data
+Predicted_treat<-predictInterval(met_efficacious_treat, newdata=Predict_matrix_treat)
+
+#combine the data we input with the predicted values
+Predicted_data_treat<-cbind(Predicted_treat,Predict_matrix_treat)
+
+
+#Extract linear model details into a data frame
+model_summary_treat<-data.frame(unlist(summary(met_efficacious_treat)$coefficients))
+#extract the row names into a variable
+model_summary_treat$Variables<-rownames(model_summary_treat)
+#remove strings which are describing the factor each level is from, and add strings to make the baseline variables more descriptive of what they actually represent
+model_summary_treat$Variables<-gsub("Treatment_class", "", model_summary_treat$Variables)
+#make a factor to change level names
+model_summary_treat$Variables <- factor(model_summary_treat$Variables)
+levels(model_summary_treat$Variables)[levels(model_summary_treat$Variables)=="(Intercept)"]<-"Anti-apoptosis/regeneration"
+
+#make an empty column for degrees of freedom in our predicted dataframe and fill with 99999
+Predicted_data_treat$df<-99999
+
+#factor levels are different between the variables so make sure they have the same levels (force predicted to have empty levels same as model)
+Predicted_data_treat$Treatment_class <- factor(Predicted_data_treat$Treatment_class, levels = levels(model_summary_treat$Variables))
+
+#check each interaction in predicted dataframe against the Variables in the model output dataframe, where they match up, copy the degrees of freedom from the model into the predicted dataframe
+for (i in 1:nrow(Predicted_data_treat)){
+
+  variable <- Predicted_data_treat[i,"Treatment_class"]
+  
+  df<- model_summary_treat$df[model_summary_treat$Variables==variable]
+  
+  Predicted_data_treat[i, "df"]<-df
+  
+}
+
+#check for statistical significance of predicted interactions (difference from SMD of 0)
+Predicted_data_treat$Tscore<-Predicted_data_treat$fit/((Predicted_data_treat$fit-Predicted_data_treat$upr)/1.96) #take 95%CI and convert to standard error (x1.96)
+Predicted_data_treat$p.value<-round(pt(Predicted_data_treat$Tscore, df=Predicted_data_treat$df, lower.tail = F),4)
+
+```
+
+```{r graph_efficacious_treatments_by_administration_time}
+
+#add missing variables to the time alone and treatment class alone dataframes
+#for the overall effect of treatment time, make variable level called Overall time
+Predicted_data_time$Treatment_class <- "Overall time"
+#for the overall effect of treatment class, make variable level called combined
+Predicted_data_treat$Treatment_time_class <- "Combined"
+
+#Create a combined dataframe
+#new dataframes for edits, remove unwanted columns
+Predicted_data_efficacious_2 <- subset(Predicted_data_efficacious, select = -Interaction_variables)
+
+Predicted_data_efficacious_combined <- rbind(Predicted_data_efficacious_2,
+                                             Predicted_data_time,
+                                             Predicted_data_treat)
+
+#drop leftover empty levels from earlier loop
+Predicted_data_efficacious_combined <- droplevels(Predicted_data_efficacious_combined)
+#re-order factor levels
+Predicted_data_efficacious_combined$Treatment_class <- factor(Predicted_data_efficacious_combined$Treatment_class, 
+                                                              levels = c("Overall time",
+                                                                         "Blood flow",
+                                                                         "Anti-oxidants",
+                                                                         "Anti-inflammation",
+                                                                         "Anti-apoptosis/regeneration"))
+Predicted_data_efficacious_combined$Treatment_time_class <- factor(Predicted_data_efficacious_combined$Treatment_time_class, 
+                                                                   levels = c("Combined", 
+                                                                              "Before stroke",
+                                                                              "During stroke",
+                                                                              "After stroke"))
+
+#make a dataframe of n
+#make dataframe of combined treatment time and class
+df_treat_time_efficacy_n_1 <- as.data.frame(table(df_reduced_SMD_efficacious_limited$Treatment_time_class, df_reduced_SMD_efficacious_limited$Treatment_class))
+colnames(df_treat_time_efficacy_n_1) <- c("Treatment_time_class", "Treatment_class", "n")#rename variables
+
+# dataframe of just administration time n
+df_treat_time_efficacy_n_2 <- as.data.frame(summary(df_reduced_SMD_efficacious_limited$Treatment_time_class))
+df_treat_time_efficacy_n_2$Treatment_time_class<-rownames(df_treat_time_efficacy_n_2) #make rownames a variable
+df_treat_time_efficacy_n_2$Treatment_class <- "Overall time" #add category for treatment class
+names(df_treat_time_efficacy_n_2)[names(df_treat_time_efficacy_n_2) == "summary(df_reduced_SMD_efficacious_limited$Treatment_time_class)"] <- "n" #rename to n
+
+# dataframe of just treatment class n 
+df_treat_time_efficacy_n_3 <- as.data.frame(summary(df_reduced_SMD_efficacious_limited$Treatment_class))
+df_treat_time_efficacy_n_3$Treatment_class<-rownames(df_treat_time_efficacy_n_3) #make rownames a variable
+df_treat_time_efficacy_n_3$Treatment_time_class <- "Combined" #add category for treatment class
+names(df_treat_time_efficacy_n_3)[names(df_treat_time_efficacy_n_3) == "summary(df_reduced_SMD_efficacious_limited$Treatment_class)"] <- "n" #rename to n
+
+#combine the dataframe
+df_treat_time_efficacy_n <- rbind(df_treat_time_efficacy_n_1, 
+                                    df_treat_time_efficacy_n_2, 
+                                    df_treat_time_efficacy_n_3)
+
+
+df_treat_time_efficacy_n$n <- factor(df_treat_time_efficacy_n$n)
+
+pdf("Combined_Predict_efficacious_by_time_2.pdf", width = 6, height = 7)
+ggplot(data=Predicted_data_efficacious_combined, aes(x=Treatment_time_class, y=fit, #colour = Treatment_time_class, 
+                                                     ymin=lwr, ymax=upr)) + #add colour = Treatment_time_class to aes() for colouring the groups
+  geom_hline(yintercept=0, lty=2, size =1) +  # add a dotted line at y=0
+  geom_pointrange(position=position_dodge(width=0.7)) + #points with error ranges style graph
+  scale_x_discrete(limits=rev) + #flip the x axis (about to become y axis) so it reads top to bottom - only reverses within faceted groups
+  coord_flip() + # flip coordinates (puts labels on y axis)
+  #scale_colour_manual(values = my_colors) +
+  geom_errorbar(aes(ymin=lwr, ymax=upr), width=0.5, cex=1, position=position_dodge(width=0.7)) + # Makes whiskers on the range (more aesthetically pleasing)
+  geom_text(aes(label = paste0("n = ", df_treat_time_efficacy_n$n)), hjust = 4.5) +#add labels for n - relies on counting and adding n to the data frame
+  #geom_text(aes(label = paste0(p.value)), hjust = "left") +#add labels for n - relies on counting and adding n to the data frame
+  xlab("") + #remove main x label
+  scale_y_continuous(name = "Adjusted SMD", 
+                     breaks=seq(-12.5,5,by=2.5), #how much to count by
+                     limits = c(-10,2.5)) + #upper and lower limits of axis - careful!! this can cut data!
+  facet_grid(rows = vars(Treatment_class), scales = "free_y", space = "free_y") + #get some space in-between the groups
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(colour = "black"),
+        legend.position = "bottom"
+        )
+dev.off()
+
+
+
+
+```
+
+
+
+## Visualising the variables
+
+Raincloud plots for categorical variables
+```{r treatment_coefficients, include=FALSE}
+#Pulling out the coefficients and confidence intervals (standardized estimates, not predictor values) for treatment efficacy variables
+
+#coefficients for all variables in model
+ModelAvg <- sum_signif
+mA<-summary(ModelAvg) #pulling out model averages - summary of coefficients
+df1<-as.data.frame(mA$coefmat.full) #selecting full model coefficient averages data frame only contains coefficients
+
+CI <- as.data.frame(confint(ModelAvg, full=T)) # get confidence intervals for full model 
+df1$CI.min <-CI$`2.5 %` #pulling out CIs and putting into same df as coefficient estimates
+df1$CI.max <-CI$`97.5 %`# order of coefficients same in both, so no mixups; but should check anyway
+setDT(df1, keep.rownames = "coefficient") #put rownames into column
+names(df1) <- gsub(" ", "", names(df1)) # remove spaces from column headers
+
+#this is a terrible plot just for looking at, thick red is standard error, thin red line is 95% CI, these are the coefficients and confidence intervals (standardized estimates) not the predictor values
+p_treatment_coefficients <- ggplot(data=df1, aes(x=coefficient, y=Estimate))+ #excluding intercept because estimates so much larger
+                              geom_point(size=5)+ #points for coefficient estimates
+                              theme_classic(base_size = 20)+ #clean graph
+                              geom_errorbar(aes(ymin=Estimate-Std.Error, ymax=Estimate+Std.Error), colour ="red", # SE
+                                             width=.2, lwd=3) +
+                              geom_errorbar(aes(ymin=CI.min, ymax=CI.max), colour="pink", # CIs
+                                             width=.2,lwd=1) + 
+                              theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+
+### Treatment class rain cloud plot for treatment efficacy
+```{r treatment_treatclass_residuals, include=FALSE}
+#run meta again minus treatment class
+met_signif_drop_Tclass <- rma.mv(data = df_reduced_SMD,
+                     yi = yi,
+                     V = vi,
+                     mods = ~ 
+                       Comorbidity +
+                       Treatment_time_class + 
+                       #Treatment_class +
+                       Infarct_time_class_24_inverted +
+                       X2_Body_temp +
+                       X3_Random_allocation +
+                       X4_Blinded_allocation +
+                       X5_Blinded_assessment +
+                       X8_Power_calc,
+                     random = ~ 1 | Publication_code,
+                     slab=paste(Publication_code, Comparison_identifier, sep="_"))
+
+#mf.r is the stored publication codes, want to attach the residuals to this
+df.plot.Tclass<-data.frame(met_signif_drop_Tclass$mf.r, #publication codes from model
+                          residuals(met_signif_drop_Tclass)) #function that pulls the residuals out
+
+#can only have one residual per publication code now that we've accounted for no-independence so this line removes the duplicates (unique publications only)
+
+#use this line of code when there are different relevant treatment groups per publication code (eg one paper two comorbidities)
+#df.unqiue.light<- df_reduced_SMD[!duplicated(paste(df_reduced_SMD$Publication_code, df_reduced_SMD$#Column of treatment group of interest)),]
+df.unqiue.Tclass<- df_reduced_SMD[!duplicated(paste(df_reduced_SMD$Publication_code, df_reduced_SMD$Treatment_class)),]
+
+#combine the data frames and remove all extra variables, only include two of interest. This is needed as the meta has no light source in it (we removed it) and we need to add it back in to correlate with our residuals
+df.plot.Tclass1<-merge(df.plot.Tclass,df.unqiue.Tclass[,c("Publication_code","Treatment_class")], by= "Publication_code")
+#rename columns
+colnames(df.plot.Tclass1)<-c("Publication_code", "Residuals","Explanatory")
+
+```
+
+```{r treatment_class_clean_plot_data,include=FALSE}
+Tclass.df1 <- df1 %>% #take the rows that contain the intercept and the variable of interest
+    filter(str_detect(coefficient, "intrcpt") | str_detect(coefficient, "Treatment_class"))
+colnames(Tclass.df1)[1]<-"Explanatory" #rename column 1
+summary(df_reduced_SMD$Treatment_class) #check what the baseline is so I can rename intercpt that
+
+#Neaten the dataframe
+Tclass.df1$Explanatory<-gsub("Treatment_class", "",Tclass.df1$Explanatory) #replace "Treatment_class" with "" to neaten
+Tclass.df1$Explanatory<-gsub("intrcpt", "Other",Tclass.df1$Explanatory) #replace intercept with Thrombolytics as this was baseline
+#Tclass.df1$Explanatory<-gsub("NR", "Not reported",Tclass.df1$Explanatory) #there is no NR in this
+#df.plot.Tclass1$Explanatory<-gsub("NR", "Not reported",df.plot.Tclass1$Explanatory)
+
+#check variable ordering for two main df's going in to plot
+summary(factor(Tclass.df1$Explanatory))
+summary(df.plot.Tclass1$Explanatory)
+
+#reordering Tclass.df1 here to match order of meta-analyses
+Tclass.df1$Explanatory <- factor(Tclass.df1$Explanatory, levels = c('Other','Anti-apoptosis/regeneration','Anti-inflammation','Anti-oxidants','Blood flow','Energy substrates','Excitotoxicity','Multiple mechanisms','Nootropics/cognition','Thrombolytics', 'Harm induction'))
+summary(Tclass.df1$Explanatory)
+
+```
+
+```{r treatment_class_rain_plot}
+#make the raincloud plot for treatment class
+Rain.cloud.Tclass <- ggplot(data = df.plot.Tclass1, 
+                           aes(y = as.numeric(Residuals), 
+                               x = Explanatory, 
+                               fill = Explanatory)) +
+geom_flat_violin(position = position_nudge(x = 0.4, y = 0), #nudged up a bit so not sitting on top of points
+                 alpha = .8, #slightly transparent
+                 width=0.5) + #how big the raincloud is
+geom_point(aes(y = as.numeric(Residuals), color = Explanatory), 
+           position = position_jitterdodge(dodge.width = 0.6, jitter.width = 2), #stop them sitting on top of each other in flat line, this tells size of jitter
+           size = 1.5, #size of points
+           alpha = 0.5) + #transparency
+#geom_boxplot(width = .1, guides = FALSE, outlier.shape = NA, alpha = 0.5) +
+#expand_limits(x = 5.25) +
+guides(fill = "none") + #remove gridines etc
+guides(color = "none") +
+scale_colour_viridis_d()+ #fill violins colours
+scale_fill_viridis_d()+ #fill points with colour
+coord_flip() + #flip to vertical
+labs(x = "", y="Adjusted SMD")+ #remove x axis labels
+theme_classic() +
+geom_hline(yintercept = 0, linetype = 2)
+
+
+#take the plot and add model predictors+CI's
+pdf("Rain_cloud_treatment_class11.pdf", height=7, width=6) #make pdf, remake each time and change height/width if needed
+Rain.cloud.Tclass +
+annotate("pointrange", #annotate can put anything on your ggplot, this is adding points (the mean and CI)
+         #x=(1:length(Tclass.df1$Explanatory))+ 0.2, #x is factor (light source), tell it to put our dots at positions 1 through 9 (length of factor) and then dodge it 0.2
+         y=Tclass.df1$Estimate,
+         min=Tclass.df1$CI.min, #plot min
+         x=(Tclass.df1$Explanatory),
+         max=Tclass.df1$CI.max,
+         position = "dodge") #plot max + dodge other bits on plot
+dev.off()
+
+```
+
+### Comorbidity rain cloud plot for treatment efficacy
+```{r treatment_comorbidity_residuals, include=FALSE}
+#run meta again minus comorbidity level
+met_signif_drop_Comorbidity <- rma.mv(data = df_reduced_SMD,
+                     yi = yi,
+                     V = vi,
+                     mods = ~
+                       #Comorbidity +
+                       Treatment_time_class + 
+                       Treatment_class +
+                       Infarct_time_class_24_inverted +
+                       X2_Body_temp +
+                       X3_Random_allocation +
+                       X4_Blinded_allocation +
+                       X5_Blinded_assessment +
+                       X8_Power_calc,
+                     random = ~ 1 | Publication_code,
+                     slab=paste(Publication_code, Comparison_identifier, sep="_"))
+
+#mf.r is the stored publication codes, want to attach the residuals to this
+df.plot.Comorbidity<-data.frame(met_signif_drop_Comorbidity$mf.r, #publication codes from model
+                          residuals(met_signif_drop_Comorbidity)) #function that pulls the residuals out
+
+#can only have one residual per publication code now that we've accounted for no-independence so this line removes the duplicates (unique publications only)
+
+#use this line of code when there are different relevant treatment groups per publication code (eg one paper two comorbidities)
+df.unqiue.Comorbidity<- df_reduced_SMD[!duplicated(paste(df_reduced_SMD$Publication_code, df_reduced_SMD$Comorbidity)),]
+
+#combine the data frames and remove all extra variables, only include two of interest. This is needed as the meta has no light source in it (we removed it) and we need to add it back in to correlate with our residuals
+df.plot.Comorbidity1<-merge(df.plot.Comorbidity,df.unqiue.Comorbidity[,c("Publication_code","Comorbidity")], by= "Publication_code")
+#rename columns
+colnames(df.plot.Comorbidity1)<-c("Publication_code", "Residuals","Explanatory")
+
+```
+
+```{r treatment_comorbidity_clean_plot_data, include=FALSE}
+Comorbidity.df1 <- df1 %>% #take the rows that contain the intercept and the variable of interest
+    filter(str_detect(coefficient, "intrcpt") | str_detect(coefficient, "Comorbidity"))
+colnames(Comorbidity.df1)[1]<-"Explanatory" #rename column 1
+summary(df_reduced_SMD$Comorbidity) #check what baseline is for renaming intrcpt
+
+#Neaten the dataframe
+Comorbidity.df1$Explanatory<-gsub("Comorbidity", "",Comorbidity.df1$Explanatory) #replace "Surgical_level"" with "" to neaten
+Comorbidity.df1$Explanatory<-gsub("intrcpt", "None",Comorbidity.df1$Explanatory) #replace intercept with baseline
+
+#check order of variable
+summary(df.plot.Comorbidity1$Explanatory)
+summary(factor(Comorbidity.df1$Explanatory))
+
+#reorder factor to match order in meta-analysis
+Comorbidity.df1$Explanatory <- factor(Comorbidity.df1$Explanatory, levels = c('None','Aged','Hypertension'))
+summary(Comorbidity.df1$Explanatory)
+
+```
+
+```{r treatment_comorbidity_rain_plot}
+#make the raincloud plot
+Rain.cloud.Comorbidity <- ggplot(data = df.plot.Comorbidity1, 
+                           aes(y = as.numeric(Residuals), 
+                               x = Explanatory, 
+                               fill = Explanatory)) +
+geom_flat_violin(position = position_nudge(x = 0.4, y = 0), #nudged up a bit so not sitting on top of points
+                 alpha = .8, #slightly transparent
+                 width=0.5) + #how big the raincloud is
+geom_point(aes(y = as.numeric(Residuals), color = Explanatory), 
+           position = position_jitterdodge(dodge.width = 0.4, jitter.width = 1.5), #stop them sitting on top of each other in flat line, this tells size of jitter
+           size = 1.5, #size of points
+           alpha = 0.5) + #transparency
+#geom_boxplot(width = .1, guides = FALSE, outlier.shape = NA, alpha = 0.5) +
+#expand_limits(x = 5.25) +
+guides(fill = FALSE) + #remove gridines etc
+guides(color = FALSE) +
+scale_colour_viridis_d()+ #fill violins colours
+scale_fill_viridis_d()+ #fill points with colour
+coord_flip() + #flip to vertical
+labs(x = "", y="Adjusted SMD")+ #remove x axis labels
+theme_classic() +
+geom_hline(yintercept = 0, linetype = 2)
+
+#take the plot and add model predictors+CI's
+pdf("Rain_cloud_treatment_comorbidity9.pdf", height=3, width=4) #make pdf, remake each time and change height/width if needed
+Rain.cloud.Comorbidity +
+annotate("pointrange", #annotate can put anything on your ggplot, this is adding points (the mean and CI)
+         #x=(1:length(Tclass.df1$Explanatory))+ 0.2, #x is factor (light source), tell it to put our dots at positions 1 through 9 (length of factor) and then dodge it 0.2
+         y=Comorbidity.df1$Estimate,
+         min=Comorbidity.df1$CI.min, #plot min
+         x=(Comorbidity.df1$Explanatory),
+         max=Comorbidity.df1$CI.max,position = "dodge") #plot max + dodge other bits on plot
+dev.off()
+
+```
+
+
+### Time of treatment rain cloud plot for treatment efficacy
+```{r treatment_time_residuals, include=FALSE}
+#run meta again minus surgical severity level
+met_signif_drop_TTime <- rma.mv(data = df_reduced_SMD,
+                     yi = yi,
+                     V = vi,
+                     mods = ~
+                       Comorbidity +
+                       #Treatment_time_class + 
+                       Treatment_class +
+                       Infarct_time_class_24_inverted +
+                       X2_Body_temp +
+                       X3_Random_allocation +
+                       X4_Blinded_allocation +
+                       X5_Blinded_assessment +
+                       X8_Power_calc,
+                     random = ~ 1 | Publication_code,
+                     slab=paste(Publication_code, Comparison_identifier, sep="_"))
+
+#mf.r is the stored publication codes, want to attach the residuals to this
+df.plot.TTime<-data.frame(met_signif_drop_TTime$mf.r, #publication codes from model
+                          residuals(met_signif_drop_TTime)) #function that pulls the residuals out
+
+#can only have one residual per publication code now that we've accounted for no-independence so this line removes the duplicates (unique publications only)
+
+#use this line of code when there are different relevant treatment groups per publication code (eg one paper two comorbidities)
+df.unqiue.TTime<- df_reduced_SMD[!duplicated(paste(df_reduced_SMD$Publication_code, df_reduced_SMD$Treatment_time_class)),]
+
+#combine the data frames and remove all extra variables, only include two of interest. This is needed as the meta has no light source in it (we removed it) and we need to add it back in to correlate with our residuals
+df.plot.TTime1<-merge(df.plot.TTime,df.unqiue.TTime[,c("Publication_code","Treatment_time_class")], by= "Publication_code")
+#rename columns
+colnames(df.plot.TTime1)<-c("Publication_code", "Residuals","Explanatory")
+
+```
+
+```{r treatment_time_clean_plot_data, include=FALSE}
+TTime.df1 <- df1 %>% #take the rows that contain the intercept and the variable of interest
+    filter(str_detect(coefficient, "intrcpt") | str_detect(coefficient, "Treatment_time_class"))
+colnames(TTime.df1)[1]<-"Explanatory" #rename column 1
+summary(df_reduced_SMD$Treatment_time_class) #check what baseline is for renaming intrcpt
+
+#Neaten the dataframe
+TTime.df1$Explanatory<-gsub("Treatment_time_class", "",TTime.df1$Explanatory) #replace "Treatment_time_class"" with "" to neaten
+TTime.df1$Explanatory<-gsub("intrcpt", "After stroke",TTime.df1$Explanatory) #replace intercept with baseline
+TTime.df1$Explanatory<-gsub("NR", "Not reported",TTime.df1$Explanatory) #replace NR with Not reported in one df
+df.plot.TTime1$Explanatory<-gsub("NR", "Not reported",df.plot.TTime1$Explanatory)#replace NR with Not reported in other df
+
+#check order of variable
+summary(factor(df.plot.TTime1$Explanatory))
+summary(factor(TTime.df1$Explanatory))
+
+#reorder factors to match order in meta-analysis
+TTime.df1$Explanatory <- factor(TTime.df1$Explanatory, levels = c('After stroke','During stroke','Before stroke','Not reported'))
+summary(TTime.df1$Explanatory)
+df.plot.TTime1$Explanatory <- factor(df.plot.TTime1$Explanatory, levels = c('After stroke','During stroke','Before stroke','Not reported'))
+summary(df.plot.TTime1$Explanatory)
+df.plot.TTime1<-na.omit(df.plot.TTime1) #get rid of that one study with NAs
+```
+
+```{r treatment_time_rain_plot}
+#make the raincloud plot
+Rain.cloud.TTime <- ggplot(data = df.plot.TTime1, 
+                           aes(y = as.numeric(Residuals), 
+                               x = Explanatory, 
+                               fill = Explanatory)) +
+geom_flat_violin(position = position_nudge(x = 0.4, y = 0), #nudged up a bit so not sitting on top of points
+                 alpha = .8, #slightly transparent
+                 width=0.5) + #how big the raincloud is
+geom_point(aes(y = as.numeric(Residuals), color = Explanatory), 
+           position = position_jitterdodge(dodge.width = 0.4, jitter.width = 1.5), #stop them sitting on top of each other in flat line, this tells size of jitter
+           size = 1.5, #size of points
+           alpha = 0.5) + #transparency
+#geom_boxplot(width = .1, guides = FALSE, outlier.shape = NA, alpha = 0.5) +
+#expand_limits(x = 5.25) +
+guides(fill = FALSE) + #remove gridines etc
+guides(color = FALSE) +
+scale_colour_viridis_d()+ #fill violins colours
+scale_fill_viridis_d()+ #fill points with colour
+coord_flip() + #flip to vertical
+labs(x = "", y="Adjusted SMD")+ #remove x axis labels
+theme_classic() +
+geom_hline(yintercept = 0, linetype = 2)
+
+#take the plot and add model predictors+CI's
+pdf("Rain_cloud_treatment_time6.pdf", height=3, width=4) #make pdf, remake each time and change height/width if needed
+Rain.cloud.TTime +
+annotate("pointrange", #annotate can put anything on your ggplot, this is adding points (the mean and CI)
+         #x=(1:length(Tclass.df1$Explanatory))+ 0.2, #x is factor (light source), tell it to put our dots at positions 1 through 9 (length of factor) and then dodge it 0.2
+         y=TTime.df1$Estimate,
+         min=TTime.df1$CI.min, #plot min
+         x=(TTime.df1$Explanatory),
+         max=TTime.df1$CI.max,position = "dodge") #plot max + dodge other bits on plot
+dev.off()
+
+```
+
+
+Infarct time as class (<24 hours)
+```{r treatment_measurement_time_residuals, include=FALSE}
+#run meta again minus variable of interest
+met_signif_drop_Inf_time_class <- rma.mv(data = df_reduced_SMD,
+                     yi = yi,
+                     V = vi,
+                     mods = ~
+                       Comorbidity +
+                       Treatment_time_class + 
+                       Treatment_class +
+                       #Infarct_time_class_24_inverted +
+                       X2_Body_temp +
+                       X3_Random_allocation +
+                       X4_Blinded_allocation +
+                       X5_Blinded_assessment +
+                       X8_Power_calc,
+                     random = ~ 1 | Publication_code,
+                     slab=paste(Publication_code, Comparison_identifier, sep="_"))
+
+#mf.r is the stored publication codes, want to attach the residuals to this
+df.plot.Inf_time_class<-data.frame(met_signif_drop_Inf_time_class$mf.r, #publication codes from model
+                          residuals(met_signif_drop_Inf_time_class)) #function that pulls the residuals out
+
+#can only have one residual per publication code now that we've accounted for no-independence so this line removes the duplicates (unique publications only)
+
+#use this line of code when there are different relevant treatment groups per publication code (eg one paper two comorbidities)
+df.unqiue.Inf_time_class<- df_reduced_SMD[!duplicated(paste(df_reduced_SMD$Publication_code, df_reduced_SMD$Infarct_time_class_24_inverted)),]
+
+#combine the data frames and remove all extra variables, only include two of interest. This is needed as the meta has no light source in it (we removed it) and we need to add it back in to correlate with our residuals
+df.plot.Inf_time_class1<-merge(df.plot.Inf_time_class,df.unqiue.Inf_time_class[,c("Publication_code","Infarct_time_class_24_inverted")], by= "Publication_code")
+#rename columns
+colnames(df.plot.Inf_time_class1)<-c("Publication_code", "Residuals","Explanatory")
+
+```
+
+```{r treatment_measurement_time_clean_plot_data, include=FALSE}
+Inf_time_class.df1 <- df1 %>% #take the rows that contain the intercept and the variable of interest
+    filter(str_detect(coefficient, "intrcpt") | str_detect(coefficient, "Infarct_time_class_24_inverted"))
+colnames(Inf_time_class.df1)[1]<-"Explanatory" #rename column 1
+
+#Neaten the dataframe
+Inf_time_class.df1$Explanatory<-gsub("Infarct_time_class_24_inverted1", "24 hours or earlier", Inf_time_class.df1$Explanatory) 
+Inf_time_class.df1$Explanatory<-gsub("intrcpt", "Greater than 24 hours", Inf_time_class.df1$Explanatory) #replace intercept with baseline
+df.plot.Inf_time_class1$Explanatory<-gsub("1", "24 hours or earlier", df.plot.Inf_time_class1$Explanatory) 
+df.plot.Inf_time_class1$Explanatory<-gsub("0", "Greater than 24 hours", df.plot.Inf_time_class1$Explanatory)
+
+#check order of variable
+summary(factor(df.plot.Inf_time_class1$Explanatory))
+summary(factor(Inf_time_class.df1$Explanatory))
+#order is fine
+#omit any NAs
+df.plot.Inf_time_class1<-na.omit(df.plot.Inf_time_class1) #get rid of that one study with NAs
+```
+
+```{r treatment_measurement_time_rain_plot}
+#make the raincloud plot
+Rain.cloud.Inf_time_class <- ggplot(data = df.plot.Inf_time_class1, 
+                           aes(y = as.numeric(Residuals), 
+                               x = Explanatory, 
+                               fill = Explanatory)) +
+geom_flat_violin(position = position_nudge(x = 0.4, y = 0), #nudged up a bit so not sitting on top of points
+                 alpha = .8, #slightly transparent
+                 width=0.5) + #how big the raincloud is
+geom_point(aes(y = as.numeric(Residuals), color = Explanatory), 
+           position = position_jitterdodge(dodge.width = 0.4, jitter.width = 0.6), #stop them sitting on top of each other in flat line, this tells size of jitter
+           size = 1.5, #size of points
+           alpha = 0.5) + #transparency
+#geom_boxplot(width = .1, guides = FALSE, outlier.shape = NA, alpha = 0.5) +
+#expand_limits(x = 5.25) +
+guides(fill = FALSE) + #remove gridines etc
+guides(color = FALSE) +
+scale_colour_viridis_d()+ #fill violins colours
+scale_fill_viridis_d()+ #fill points with colour
+coord_flip() + #flip to vertical
+labs(x = "", y="Adjusted SMD")+ #remove x axis labels
+theme_classic() +
+geom_hline(yintercept = 0, linetype = 2)
+
+#take the plot and add model predictors+CI's
+pdf("Rain_cloud_treatment_infarct_measurement6.pdf", height=3, width=4.5) #make pdf, remake each time and change height/width if needed
+Rain.cloud.Inf_time_class +
+annotate("pointrange", #annotate can put anything on your ggplot, this is adding points (the mean and CI)
+         #x=(1:length(Tclass.df1$Explanatory))+ 0.2, #x is factor (light source), tell it to put our dots at positions 1 through 9 (length of factor) and then dodge it 0.2
+         y=Inf_time_class.df1$Estimate,
+         min=Inf_time_class.df1$CI.min, #plot min
+         x=(Inf_time_class.df1$Explanatory),
+         max=Inf_time_class.df1$CI.max,position = "dodge") #plot max + dodge other bits on plot
+dev.off()
+
+```
+
+
+### Quality markers rain cloud plots for treatment efficacy
+
+Body temperature control during surgery
+```{r treatment_bodytemp_residuals, include=FALSE}
+#run meta again minus variable of interest
+met_signif_drop_Bodytemp <- rma.mv(data = df_reduced_SMD,
+                     yi = yi,
+                     V = vi,
+                     mods = ~
+                       Comorbidity +
+                       Treatment_time_class + 
+                       Treatment_class +
+                       Infarct_time_class_24_inverted +
+                       #X2_Body_temp +
+                       X3_Random_allocation +
+                       X4_Blinded_allocation +
+                       X5_Blinded_assessment +
+                       X8_Power_calc,
+                     random = ~ 1 | Publication_code,
+                     slab=paste(Publication_code, Comparison_identifier, sep="_"))
+
+#mf.r is the stored publication codes, want to attach the residuals to this
+df.plot.Bodytemp<-data.frame(met_signif_drop_Bodytemp$mf.r, #publication codes from model
+                          residuals(met_signif_drop_Bodytemp)) #function that pulls the residuals out
+
+#can only have one residual per publication code now that we've accounted for no-independence so this line removes the duplicates (unique publications only)
+
+#use this line of code when there are different relevant treatment groups per publication code (eg one paper two comorbidities)
+df.unqiue.Bodytemp<- df_reduced_SMD[!duplicated(paste(df_reduced_SMD$Publication_code, df_reduced_SMD$X2_Body_temp)),]
+
+#combine the data frames and remove all extra variables, only include two of interest. This is needed as the meta has no light source in it (we removed it) and we need to add it back in to correlate with our residuals
+df.plot.Bodytemp1<-merge(df.plot.Bodytemp,df.unqiue.Bodytemp[,c("Publication_code","X2_Body_temp")], by= "Publication_code")
+#rename columns
+colnames(df.plot.Bodytemp1)<-c("Publication_code", "Residuals","Explanatory")
+
+```
+
+```{r treatment_bodytemp_clean_plot_data, include=FALSE}
+Bodytemp.df1 <- df1 %>% #take the rows that contain the intercept and the variable of interest
+    filter(str_detect(coefficient, "intrcpt") | str_detect(coefficient, "X2_Body_temp"))
+colnames(Bodytemp.df1)[1]<-"Explanatory" #rename column 1
+summary(df_reduced_SMD$X2_Body_temp) #check what baseline is for renaming intrcpt
+
+#Neaten the dataframe
+Bodytemp.df1$Explanatory<-gsub("X2_Body_temp", "",Bodytemp.df1$Explanatory) #replace "Surgical_level"" with "" to neaten
+Bodytemp.df1$Explanatory<-gsub("intrcpt", "NR",Bodytemp.df1$Explanatory) #replace intercept with baseline
+Bodytemp.df1$Explanatory<-gsub("NR", "Not reported",Bodytemp.df1$Explanatory) #replace NR with Not reported in one df
+df.plot.Bodytemp1$Explanatory<-gsub("NR", "Not reported",df.plot.Bodytemp1$Explanatory)#replace NR with Not reported in other df
+
+#check order of variable
+summary(factor(df.plot.Bodytemp1$Explanatory))
+summary(factor(Bodytemp.df1$Explanatory))
+#order is fine
+
+```
+
+```{r treatment_bodytemp_rain_plot}
+#make the raincloud plot
+Rain.cloud.Bodytemp <- ggplot(data = df.plot.Bodytemp1, 
+                           aes(y = as.numeric(Residuals), 
+                               x = Explanatory, 
+                               fill = Explanatory)) +
+geom_flat_violin(position = position_nudge(x = 0.4, y = 0), #nudged up a bit so not sitting on top of points
+                 alpha = .8, #slightly transparent
+                 width=0.5) + #how big the raincloud is
+geom_point(aes(y = as.numeric(Residuals), color = Explanatory), 
+           position = position_jitterdodge(dodge.width = 0.4, jitter.width = 0.6), #stop them sitting on top of each other in flat line, this tells size of jitter
+           size = 1.5, #size of points
+           alpha = 0.5) + #transparency
+#geom_boxplot(width = .1, guides = FALSE, outlier.shape = NA, alpha = 0.5) +
+#expand_limits(x = 5.25) +
+guides(fill = FALSE) + #remove gridines etc
+guides(color = FALSE) +
+scale_colour_viridis_d()+ #fill violins colours
+scale_fill_viridis_d()+ #fill points with colour
+coord_flip() + #flip to vertical
+labs(x = "", y="Adjusted SMD", title="Body temperature")+ #remove x axis labels
+theme_classic() +
+geom_hline(yintercept = 0, linetype = 2)
+
+#take the plot and add model predictors+CI's
+pdf("Rain_cloud_treatment_Bodytemp9.pdf", height=3, width=4) #make pdf, remake each time and change height/width if needed
+Rain.cloud.Bodytemp +
+annotate("pointrange", #annotate can put anything on your ggplot, this is adding points (the mean and CI)
+         #x=(1:length(Tclass.df1$Explanatory))+ 0.2, #x is factor (light source), tell it to put our dots at positions 1 through 9 (length of factor) and then dodge it 0.2
+         y=Bodytemp.df1$Estimate,
+         min=Bodytemp.df1$CI.min, #plot min
+         x=(Bodytemp.df1$Explanatory),
+         max=Bodytemp.df1$CI.max,position = "dodge") #plot max + dodge other bits on plot
+dev.off()
+
+```
+
+Random allocation to groups
+```{r treatment_randomisation_residuals, include=FALSE}
+#run meta again minus variable of interest
+met_signif_drop_Randomisation <- rma.mv(data = df_reduced_SMD,
+                     yi = yi,
+                     V = vi,
+                     mods = ~
+                       Comorbidity +
+                       Treatment_time_class + 
+                       Treatment_class +
+                       Infarct_time_class_24_inverted +
+                       X2_Body_temp +
+                       #X3_Random_allocation +
+                       X4_Blinded_allocation +
+                       X5_Blinded_assessment +
+                       X8_Power_calc,
+                     random = ~ 1 | Publication_code,
+                     slab=paste(Publication_code, Comparison_identifier, sep="_"))
+
+#mf.r is the stored publication codes, want to attach the residuals to this
+df.plot.Randomisation<-data.frame(met_signif_drop_Randomisation$mf.r, #publication codes from model
+                          residuals(met_signif_drop_Randomisation)) #function that pulls the residuals out
+
+#can only have one residual per publication code now that we've accounted for no-independence so this line removes the duplicates (unique publications only)
+
+#use this line of code when there are different relevant treatment groups per publication code (eg one paper two comorbidities)
+df.unqiue.Randomisation<- df_reduced_SMD[!duplicated(paste(df_reduced_SMD$Publication_code, df_reduced_SMD$X3_Random_allocation)),]
+
+#combine the data frames and remove all extra variables, only include two of interest. This is needed as the meta has no light source in it (we removed it) and we need to add it back in to correlate with our residuals
+df.plot.Randomisation1<-merge(df.plot.Randomisation,df.unqiue.Randomisation[,c("Publication_code","X3_Random_allocation")], by= "Publication_code")
+#rename columns
+colnames(df.plot.Randomisation1)<-c("Publication_code", "Residuals","Explanatory")
+
+```
+
+```{r treatment_randomisation_clean_plot_data, include=FALSE}
+Randomisation.df1 <- df1 %>% #take the rows that contain the intercept and the variable of interest
+    filter(str_detect(coefficient, "intrcpt") | str_detect(coefficient, "X3_Random_allocation"))
+colnames(Randomisation.df1)[1]<-"Explanatory" #rename column 1
+summary(df_reduced_SMD$X3_Random_allocation) #check what baseline is for renaming intrcpt
+
+#Neaten the dataframe
+Randomisation.df1$Explanatory<-gsub("X3_Random_allocation", "",Randomisation.df1$Explanatory) #replace "Surgical_level"" with "" to neaten
+Randomisation.df1$Explanatory<-gsub("intrcpt", "NR",Randomisation.df1$Explanatory) #replace intercept with baseline
+Randomisation.df1$Explanatory<-gsub("NR", "Not reported",Randomisation.df1$Explanatory) #replace NR with Not reported in one df
+df.plot.Randomisation1$Explanatory<-gsub("NR", "Not reported",df.plot.Randomisation1$Explanatory)#replace NR with Not reported in other df
+
+#check order of variable
+summary(factor(df.plot.Randomisation1$Explanatory))
+summary(factor(Randomisation.df1$Explanatory))
+#order is fine
+
+```
+
+```{r treatment_randomisation_rain_plot}
+#make the raincloud plot
+Rain.cloud.Randomisation <- ggplot(data = df.plot.Randomisation1, 
+                           aes(y = as.numeric(Residuals), 
+                               x = Explanatory, 
+                               fill = Explanatory)) +
+geom_flat_violin(position = position_nudge(x = 0.4, y = 0), #nudged up a bit so not sitting on top of points
+                 alpha = .8, #slightly transparent
+                 width=0.5) + #how big the raincloud is
+geom_point(aes(y = as.numeric(Residuals), color = Explanatory), 
+           position = position_jitterdodge(dodge.width = 0.4, jitter.width = 0.6), #stop them sitting on top of each other in flat line, this tells size of jitter
+           size = 1.5, #size of points
+           alpha = 0.5) + #transparency
+#geom_boxplot(width = .1, guides = FALSE, outlier.shape = NA, alpha = 0.5) +
+#expand_limits(x = 5.25) +
+guides(fill = FALSE) + #remove gridines etc
+guides(color = FALSE) +
+scale_colour_viridis_d()+ #fill violins colours
+scale_fill_viridis_d()+ #fill points with colour
+coord_flip() + #flip to vertical
+labs(x = "", y="Adjusted SMD", title= "Randomisation")+ #remove x axis labels
+theme_classic() +
+geom_hline(yintercept = 0, linetype = 2)
+
+#take the plot and add model predictors+CI's
+pdf("Rain_cloud_treatment_Randomisation9.pdf", height=3, width=4) #make pdf, remake each time and change height/width if needed
+Rain.cloud.Randomisation +
+annotate("pointrange", #annotate can put anything on your ggplot, this is adding points (the mean and CI)
+         #x=(1:length(Tclass.df1$Explanatory))+ 0.2, #x is factor (light source), tell it to put our dots at positions 1 through 9 (length of factor) and then dodge it 0.2
+         y=Randomisation.df1$Estimate,
+         min=Randomisation.df1$CI.min, #plot min
+         x=(Randomisation.df1$Explanatory),
+         max=Randomisation.df1$CI.max,position = "dodge") #plot max + dodge other bits on plot
+dev.off()
+
+```
+
+Blinded to group allocation during surgery
+```{r treatment_blinded_allocation_residuals, include=FALSE}
+#run meta again minus variable of interest
+met_signif_drop_BlindA <- rma.mv(data = df_reduced_SMD,
+                     yi = yi,
+                     V = vi,
+                     mods = ~
+                       Comorbidity +
+                       Treatment_time_class + 
+                       Treatment_class +
+                       Infarct_time_class_24_inverted +
+                       X2_Body_temp +
+                       X3_Random_allocation +
+                       #X4_Blinded_allocation +
+                       X5_Blinded_assessment +
+                       X8_Power_calc,
+                     random = ~ 1 | Publication_code,
+                     slab=paste(Publication_code, Comparison_identifier, sep="_"))
+
+#mf.r is the stored publication codes, want to attach the residuals to this
+df.plot.BlindA<-data.frame(met_signif_drop_BlindA$mf.r, #publication codes from model
+                          residuals(met_signif_drop_BlindA)) #function that pulls the residuals out
+
+#can only have one residual per publication code now that we've accounted for no-independence so this line removes the duplicates (unique publications only)
+
+#use this line of code when there are different relevant treatment groups per publication code (eg one paper two comorbidities)
+df.unqiue.BlindA<- df_reduced_SMD[!duplicated(paste(df_reduced_SMD$Publication_code, df_reduced_SMD$X4_Blinded_allocation)),]
+
+#combine the data frames and remove all extra variables, only include two of interest. This is needed as the meta has no light source in it (we removed it) and we need to add it back in to correlate with our residuals
+df.plot.BlindA1<-merge(df.plot.BlindA,df.unqiue.BlindA[,c("Publication_code","X4_Blinded_allocation")], by= "Publication_code")
+#rename columns
+colnames(df.plot.BlindA1)<-c("Publication_code", "Residuals","Explanatory")
+
+```
+
+```{r treatment_blinded_allocation_clean_plot_data, include=FALSE}
+BlindA.df1 <- df1 %>% #take the rows that contain the intercept and the variable of interest
+    filter(str_detect(coefficient, "intrcpt") | str_detect(coefficient, "X4_Blinded_allocation"))
+colnames(BlindA.df1)[1]<-"Explanatory" #rename column 1
+summary(df_reduced_SMD$X4_Blinded_allocation) #check what baseline is for renaming intrcpt
+
+#Neaten the dataframe
+BlindA.df1$Explanatory<-gsub("X4_Blinded_allocation", "",BlindA.df1$Explanatory) #replace "Surgical_level"" with "" to neaten
+BlindA.df1$Explanatory<-gsub("intrcpt", "NR",BlindA.df1$Explanatory) #replace intercept with baseline
+BlindA.df1$Explanatory<-gsub("NR", "Not reported",BlindA.df1$Explanatory) #replace NR with Not reported in one df
+df.plot.BlindA1$Explanatory<-gsub("NR", "Not reported",df.plot.BlindA1$Explanatory)#replace NR with Not reported in other df
+
+#check order of variable
+summary(factor(df.plot.BlindA1$Explanatory))
+summary(factor(BlindA.df1$Explanatory))
+#order is fine
+
+```
+
+```{r treatment_blinded_allocation_rain_plot}
+#make the raincloud plot
+Rain.cloud.BlindA <- ggplot(data = df.plot.BlindA1, 
+                           aes(y = as.numeric(Residuals), 
+                               x = Explanatory, 
+                               fill = Explanatory)) +
+geom_flat_violin(position = position_nudge(x = 0.4, y = 0), #nudged up a bit so not sitting on top of points
+                 alpha = .8, #slightly transparent
+                 width=0.5) + #how big the raincloud is
+geom_point(aes(y = as.numeric(Residuals), color = Explanatory), 
+           position = position_jitterdodge(dodge.width = 0.4, jitter.width = 0.6), #stop them sitting on top of each other in flat line, this tells size of jitter
+           size = 1.5, #size of points
+           alpha = 0.5) + #transparency
+#geom_boxplot(width = .1, guides = FALSE, outlier.shape = NA, alpha = 0.5) +
+#expand_limits(x = 5.25) +
+guides(fill = FALSE) + #remove gridines etc
+guides(color = FALSE) +
+scale_colour_viridis_d()+ #fill violins colours
+scale_fill_viridis_d()+ #fill points with colour
+coord_flip() + #flip to vertical
+labs(x = "", y="Adjusted SMD", title = "Allocation concealment")+ #remove x axis labels
+theme_classic() +
+geom_hline(yintercept = 0, linetype = 2)
+
+#take the plot and add model predictors+CI's
+pdf("Rain_cloud_treatment_Blinded_allocation9.pdf", height=3, width=4) #make pdf, remake each time and change height/width if needed
+Rain.cloud.BlindA +
+annotate("pointrange", #annotate can put anything on your ggplot, this is adding points (the mean and CI)
+         #x=(1:length(Tclass.df1$Explanatory))+ 0.2, #x is factor (light source), tell it to put our dots at positions 1 through 9 (length of factor) and then dodge it 0.2
+         y=BlindA.df1$Estimate,
+         min=BlindA.df1$CI.min, #plot min
+         x=(BlindA.df1$Explanatory),
+         max=BlindA.df1$CI.max,position = "dodge") #plot max + dodge other bits on plot
+dev.off()
+
+```
+
+Blinded to group for outcome assessment
+```{r treatment_blinded_outcome_residuals, include=FALSE}
+#run meta again minus variable of interest
+met_signif_drop_BlindOut <- rma.mv(data = df_reduced_SMD,
+                     yi = yi,
+                     V = vi,
+                     mods = ~
+                       Comorbidity +
+                       Treatment_time_class + 
+                       Treatment_class +
+                       Infarct_time_class_24_inverted +
+                       X2_Body_temp +
+                       X3_Random_allocation +
+                       X4_Blinded_allocation +
+                       #X5_Blinded_assessment +
+                       X8_Power_calc,
+                     random = ~ 1 | Publication_code,
+                     slab=paste(Publication_code, Comparison_identifier, sep="_"))
+
+#mf.r is the stored publication codes, want to attach the residuals to this
+df.plot.BlindOut<-data.frame(met_signif_drop_BlindOut$mf.r, #publication codes from model
+                          residuals(met_signif_drop_BlindOut)) #function that pulls the residuals out
+
+#can only have one residual per publication code now that we've accounted for no-independence so this line removes the duplicates (unique publications only)
+
+#use this line of code when there are different relevant treatment groups per publication code (eg one paper two comorbidities)
+df.unqiue.BlindOut<- df_reduced_SMD[!duplicated(paste(df_reduced_SMD$Publication_code, df_reduced_SMD$X5_Blinded_assessment)),]
+
+#combine the data frames and remove all extra variables, only include two of interest. This is needed as the meta has no light source in it (we removed it) and we need to add it back in to correlate with our residuals
+df.plot.BlindOut1<-merge(df.plot.BlindOut,df.unqiue.BlindOut[,c("Publication_code","X5_Blinded_assessment")], by= "Publication_code")
+#rename columns
+colnames(df.plot.BlindOut1)<-c("Publication_code", "Residuals","Explanatory")
+
+```
+
+```{r treatment_blinded_outcome_clean_plot_data, include=FALSE}
+BlindOut.df1 <- df1 %>% #take the rows that contain the intercept and the variable of interest
+    filter(str_detect(coefficient, "intrcpt") | str_detect(coefficient, "X5_Blinded_assessment"))
+colnames(BlindOut.df1)[1]<-"Explanatory" #rename column 1
+summary(df_reduced_SMD$X5_Blinded_assessment) #check what baseline is for renaming intrcpt
+
+#Neaten the dataframe
+BlindOut.df1$Explanatory<-gsub("X5_Blinded_assessment", "",BlindOut.df1$Explanatory) #replace "Surgical_level"" with "" to neaten
+BlindOut.df1$Explanatory<-gsub("intrcpt", "NR",BlindOut.df1$Explanatory) #replace intercept with baseline
+BlindOut.df1$Explanatory<-gsub("NR", "Not reported",BlindOut.df1$Explanatory) #replace NR with Not reported in one df
+df.plot.BlindOut1$Explanatory<-gsub("NR", "Not reported",df.plot.BlindOut1$Explanatory)#replace NR with Not reported in other df
+
+#check order of variable
+summary(factor(df.plot.BlindOut1$Explanatory))
+summary(factor(BlindOut.df1$Explanatory))
+#order is fine
+```
+
+```{r treatment_blinded_outcome_rain_plot}
+#make the raincloud plot for surgical level
+Rain.cloud.BlindOut <- ggplot(data = df.plot.BlindOut1, 
+                           aes(y = as.numeric(Residuals), 
+                               x = Explanatory, 
+                               fill = Explanatory)) +
+geom_flat_violin(position = position_nudge(x = 0.4, y = 0), #nudged up a bit so not sitting on top of points
+                 alpha = .8, #slightly transparent
+                 width=0.5) + #how big the raincloud is
+geom_point(aes(y = as.numeric(Residuals), color = Explanatory), 
+           position = position_jitterdodge(dodge.width = 0.4, jitter.width = 0.6), #stop them sitting on top of each other in flat line, this tells size of jitter
+           size = 1.5, #size of points
+           alpha = 0.5) + #transparency
+#geom_boxplot(width = .1, guides = FALSE, outlier.shape = NA, alpha = 0.5) +
+#expand_limits(x = 5.25) +
+guides(fill = FALSE) + #remove gridines etc
+guides(color = FALSE) +
+scale_colour_viridis_d()+ #fill violins colours
+scale_fill_viridis_d()+ #fill points with colour
+coord_flip() + #flip to vertical
+labs(x = "", y="Adjusted SMD", title = "Blinding")+ #remove x axis labels
+theme_classic() +
+geom_hline(yintercept = 0, linetype = 2)
+
+#take the plot and add model predictors+CI's
+pdf("Rain_cloud_treatment_Blinded_assessment9.pdf", height=3, width=4) #make pdf, remake each time and change height/width if needed
+Rain.cloud.BlindOut +
+annotate("pointrange", #annotate can put anything on your ggplot, this is adding points (the mean and CI)
+         #x=(1:length(Tclass.df1$Explanatory))+ 0.2, #x is factor (light source), tell it to put our dots at positions 1 through 9 (length of factor) and then dodge it 0.2
+         y=BlindOut.df1$Estimate,
+         min=BlindOut.df1$CI.min, #plot min
+         x=(BlindOut.df1$Explanatory),
+         max=BlindOut.df1$CI.max,position = "dodge") #plot max + dodge other bits on plot
+dev.off()
+
+```
+
+Did power calculations for group sizes
+```{r treatment_power_calc_residuals, include=FALSE}
+#run meta again minus variable of interest
+met_signif_drop_Power <- rma.mv(data = df_reduced_SMD,
+                     yi = yi,
+                     V = vi,
+                     mods = ~
+                       Comorbidity +
+                       Treatment_time_class + 
+                       Treatment_class +
+                       Infarct_time_class_24_inverted +
+                       X2_Body_temp +
+                       X3_Random_allocation +
+                       X4_Blinded_allocation +
+                       X5_Blinded_assessment, # +
+                       #X8_Power_calc,
+                     random = ~ 1 | Publication_code,
+                     slab=paste(Publication_code, Comparison_identifier, sep="_"))
+
+#mf.r is the stored publication codes, want to attach the residuals to this
+df.plot.Power<-data.frame(met_signif_drop_Power$mf.r, #publication codes from model
+                          residuals(met_signif_drop_Power)) #function that pulls the residuals out
+
+#can only have one residual per publication code now that we've accounted for no-independence so this line removes the duplicates (unique publications only)
+
+#use this line of code when there are different relevant treatment groups per publication code (eg one paper two comorbidities)
+df.unqiue.Power<- df_reduced_SMD[!duplicated(paste(df_reduced_SMD$Publication_code, df_reduced_SMD$X8_Power_calc)),]
+
+#combine the data frames and remove all extra variables, only include two of interest. This is needed as the meta has no light source in it (we removed it) and we need to add it back in to correlate with our residuals
+df.plot.Power1<-merge(df.plot.Power,df.unqiue.Power[,c("Publication_code","X8_Power_calc")], by= "Publication_code")
+#rename columns
+colnames(df.plot.Power1)<-c("Publication_code", "Residuals","Explanatory")
+
+```
+
+```{r treatment_power_calc_clean_plot_data, include=FALSE}
+Power.df1 <- df1 %>% #take the rows that contain the intercept and the variable of interest
+    filter(str_detect(coefficient, "intrcpt") | str_detect(coefficient, "X8_Power_calc"))
+colnames(Power.df1)[1]<-"Explanatory" #rename column 1
+summary(df_reduced_SMD$X8_Power_calc) #check what baseline is for renaming intrcpt
+
+#Neaten the dataframe
+Power.df1$Explanatory<-gsub("X8_Power_calc", "",Power.df1$Explanatory) #replace "Surgical_level"" with "" to neaten
+Power.df1$Explanatory<-gsub("intrcpt", "NR",Power.df1$Explanatory) #replace intercept with baseline
+Power.df1$Explanatory<-gsub("NR", "Not reported",Power.df1$Explanatory) #replace NR with Not reported in one df
+df.plot.Power1$Explanatory<-gsub("NR", "Not reported",df.plot.Power1$Explanatory)#replace NR with Not reported in other df
+
+#check order of variable
+summary(factor(df.plot.Power1$Explanatory))
+summary(factor(Power.df1$Explanatory))
+#order is fine
+```
+
+```{r treatment_power_calc_rain_plot}
+#make the raincloud plot for surgical level
+Rain.cloud.Power <- ggplot(data = df.plot.Power1, 
+                           aes(y = as.numeric(Residuals), 
+                               x = Explanatory, 
+                               fill = Explanatory)) +
+geom_flat_violin(position = position_nudge(x = 0.4, y = 0), #nudged up a bit so not sitting on top of points
+                 alpha = .8, #slightly transparent
+                 width=0.5) + #how big the raincloud is
+geom_point(aes(y = as.numeric(Residuals), color = Explanatory), 
+           position = position_jitterdodge(dodge.width = 0.4, jitter.width = 0.6), #stop them sitting on top of each other in flat line, this tells size of jitter
+           size = 1.5, #size of points
+           alpha = 0.5) + #transparency
+#geom_boxplot(width = .1, guides = FALSE, outlier.shape = NA, alpha = 0.5) +
+#expand_limits(x = 5.25) +
+guides(fill = FALSE) + #remove gridines etc
+guides(color = FALSE) +
+scale_colour_viridis_d()+ #fill violins colours
+scale_fill_viridis_d()+ #fill points with colour
+coord_flip() + #flip to vertical
+labs(x = "", y="Adjusted SMD", title = "Power calculation")+ #remove x axis labels
+theme_classic() +
+geom_hline(yintercept = 0, linetype = 2)
+
+#take the plot and add model predictors+CI's
+pdf("Rain_cloud_treatment_power_calc9.pdf", height=3, width=4) #make pdf, remake each time and change height/width if needed
+Rain.cloud.Power +
+annotate("pointrange", #annotate can put anything on your ggplot, this is adding points (the mean and CI)
+         #x=(1:length(Tclass.df1$Explanatory))+ 0.2, #x is factor (light source), tell it to put our dots at positions 1 through 9 (length of factor) and then dodge it 0.2
+         y=Power.df1$Estimate,
+         min=Power.df1$CI.min, #plot min
+         x=(Power.df1$Explanatory),
+         max=Power.df1$CI.max,position = "dodge") #plot max + dodge other bits on plot
+dev.off()
+
+```
+
+
+Quality markers summed (using a different meta analysis)
+```{r treatment_coefficients_quality_summed_meta, eval=FALSE}
+#coefficients for all variables in model
+ModelAvgQualSum <- met_signif_quality #the main rma.mv model, no dredge multi-model inference for this model
+df1QualSum <- coef(summary(ModelAvgQualSum)) #extract the model coefficient table
+df1QualSum$Explanatory<-rownames(df1QualSum) #extract the row names into a variable
+
+#rename variables
+df1QualSum$CI.min <- df1QualSum$ci.lb
+df1QualSum$CI.max <- df1QualSum$ci.ub
+
+```
+
+```{r treatment_quality_summed_residuals, include=FALSE, eval=FALSE}
+#run meta again minus summed quality
+met_signif_drop_QualSum <- rma.mv(data = df_reduced_SMD,
+                     yi = yi,
+                     V = vi,
+                     mods = ~
+                       Comorbidity +
+                       Treatment_time_class + 
+                       Treatment_class +
+                       Infarct_time_class_24_inverted, # +
+                       #Quality_summed,
+                     random = ~ 1 | Publication_code,
+                     slab=paste(Publication_code, Comparison_identifier, sep="_"))
+
+
+#mf.r is the stored publication codes, want to attach the residuals to this
+df.plot.QualSum<-data.frame(met_signif_drop_QualSum$mf.r, #publication codes from model
+                          residuals(met_signif_drop_QualSum)) #function that pulls the residuals out
+
+df.unqiue.QualSum<- df_reduced_SMD[!duplicated(paste(df_reduced_SMD$Publication_code, df_reduced_SMD$Quality_summed)),]
+
+#combine the data frames and remove all extra variables, only include two of interest. This is needed as the meta has no light source in it (we removed it) and we need to add it back in to correlate with our residuals
+df.plot.QualSum1<-merge(df.plot.QualSum,df.unqiue.QualSum[,c("Publication_code","Quality_summed")], by= "Publication_code")
+#rename columns
+colnames(df.plot.QualSum1)<-c("Publication_code", "Residuals","Explanatory")
+
+```
+
+```{r treatment_quality_summed_clean_plot_data,include=FALSE, eval=FALSE}
+QualSum.df1 <- df1QualSum %>% #take the rows that contain the intercept and the variable of interest
+    filter(str_detect(Explanatory, "intrcpt") | str_detect(Explanatory, "Quality_summed"))
+
+summary(df_reduced_SMD$Quality_summed) #check what the baseline is so I can rename intercpt that
+
+#Neaten the dataframe
+QualSum.df1$Explanatory<-gsub("Quality_summed", "",QualSum.df1$Explanatory) #replace "Quality_summed" with "" to neaten
+QualSum.df1$Explanatory<-gsub("intrcpt", "0",QualSum.df1$Explanatory) #replace intercept with 
+
+#check variable ordering for two main df's going in to plot
+summary(factor(QualSum.df1$Explanatory))
+summary(df.plot.QualSum1$Explanatory)
+#order is fine
+```
+
+```{r treatment_quality_summed_rain_plot, eval=FALSE}
+#make the raincloud plot for treatment class
+Rain.cloud.QualSum <- ggplot(data = df.plot.QualSum1, 
+                           aes(y = as.numeric(Residuals), 
+                               x = Explanatory, 
+                               fill = Explanatory)) +
+geom_flat_violin(position = position_nudge(x = 0.4, y = 0), #nudged up a bit so not sitting on top of points
+                 alpha = .8, #slightly transparent
+                 width=0.5) + #how big the raincloud is
+geom_point(aes(y = as.numeric(Residuals), color = Explanatory), 
+           position = position_jitterdodge(dodge.width = 0.6, jitter.width = 2), #stop them sitting on top of each other in flat line, this tells size of jitter
+           size = 1.5, #size of points
+           alpha = 0.5) + #transparency
+#geom_boxplot(width = .1, guides = FALSE, outlier.shape = NA, alpha = 0.5) +
+#expand_limits(x = 5.25) +
+guides(fill = "none") + #remove gridines etc
+guides(color = "none") +
+scale_colour_viridis_d()+ #fill violins colours
+scale_fill_viridis_d()+ #fill points with colour
+coord_flip() + #flip to vertical
+labs(x = "", y="Adjusted SMD", title = "Summed quality score")+ #remove x axis labels
+theme_classic() +
+geom_hline(yintercept = 0, linetype = 2)
+
+
+#take the plot and add model predictors+CI's
+pdf("Rain_cloud_treatment_quality_summed5.pdf", height=3.5, width=4) #make pdf, remake each time and change height/width if needed
+Rain.cloud.QualSum +
+annotate("pointrange", #annotate can put anything on your ggplot, this is adding points (the mean and CI)
+         #x=(1:length(Tclass.df1$Explanatory))+ 0.2, #x is factor (light source), tell it to put our dots at positions 1 through 9 (length of factor) and then dodge it 0.2
+         y=QualSum.df1$estimate,
+         min=QualSum.df1$CI.min, #plot min
+         x=(QualSum.df1$Explanatory),
+         max=QualSum.df1$CI.max,
+         position = "dodge") #plot max + dodge other bits on plot
+dev.off()
+
+```
+
+
+
+
+## Funnel plot for bias (both positive publication bias and small sample size bias - small samples generate large effect sizes)
+```{r treatment_funnel_plot, include=FALSE}
+
+## Funnel Plots
+#create dataframe with only one entry per publication (instead of experiments) and treatments designed to cause harm having their efficacy reversed - use all publications, not reduced dataset
+df_publication_bias <- df_treatments_SMD %>% 
+  mutate(yi = case_when(Treatment_class == "Harm induction" ~ yi * (-1),
+      TRUE ~ as.numeric(yi))) %>% 
+  group_by(Publication_code) %>% 
+  slice_min(order_by = yi)
+
+#calculate total n for each of these (n control + n treatment)
+
+df_publication_bias <- df_publication_bias %>% 
+  mutate(N_total = N_animals_control + N_animals_treatment)
+
+
+
+funnel_model = rma.mv(data = df_publication_bias,
+                     yi = yi,
+                     #V = vi, #using standard errors is causing distortion of the plots since SE contains SMD(yi)
+                     V = 1/sqrt(df_publication_bias$N_total),
+                     random = ~ 1 | Publication_code,
+                     slab=paste(Publication_code))
+  
+summary(funnel_model)
+predict(funnel_model)
+
+funnel_model2 = rma.mv(data = df_publication_bias,
+                     yi = yi,
+                     V = vi, #using standard errors is causing distortion of the plots since SE contains SMD(yi)
+                     #V = 1/sqrt(df_publication_bias$N_total),
+                     random = ~ 1 | Publication_code,
+                     slab=paste(Publication_code))
+  
+predict(funnel_model2)
+
+# predict(funnel_model2, newdata = data.frame(df_publication_bias$Publication_code))
+# str(funnel_model2)
+
+
+
+
+# calculate average effect size in the data frame
+mean_effect_SMD <- mean(df_treatments_SMD$yi)
+
+
+pdf("Treatments_funnel_significance_bands4.pdf", height=5, width=7)
+funnel(funnel_model, 
+       level=c(90, 95, 99), 
+       shade=c("white", "#482878", "#26828e"),
+       back = "#35b779",
+       refline=0, 
+       legend="topleft",
+       ylab = "1/√n",
+       xlab = "Standardised mean difference",
+       xlim = c(-10, 5), #be careful not to lose data when restricting x axis!
+       pch = 21, #specifies the points shape, 20 is bullet, 19 is normal big circles, 21 is filled in circles
+       )
+dev.off()
+
+
+#using minimum relevant effect as calculated from tpa studies
+pdf("Treatments_funnel_power_gradient4.pdf", height=6, width=8)
+viz_sunset(funnel_model, 
+           contours = FALSE,
+           true_effect = -1.05,
+           #power_contours =  "continuous",
+           xlab = "Standardised mean difference",
+           ylab = "1/√n",
+           text_size = 5) +
+  geom_vline(xintercept = -1.05, linetype="dashed")
+dev.off()
+
+
+#second sunset plot using the model's predicted effect size as our minimum relevant effect  (-1.1953 SMD)
+
+pdf("Treatments_funnel_power_gradient_modeleffect3.pdf", height=6, width=7)
+viz_sunset(funnel_model, 
+           contours = FALSE,
+           true_effect = mean_effect_SMD,
+           #power_contours =  "continuous",
+           xlab = "Standardised mean difference",
+           ylab = "1/√n",
+           text_size = 5) +
+  geom_vline(xintercept = mean_effect_SMD, linetype="dashed") +
+  geom_vline(xintercept = 0, linetype="solid")#+
+  #geom_hline(aes(y = Power), yintercept = 0.8)
+dev.off()
+
+```
+
+```{r Calculate_study_power}
+# Function from Dan Quintana to find the power of each study 
+# https://www.dsquintana.blog/meta-analysis-power-plot/
+s_power <- function(se, true_effect, sig_level) {
+  
+  (1 - stats::pnorm(stats::qnorm(1 - sig_level/2) * 
+                      se, abs(true_effect), se)) + 
+    stats::pnorm(stats::qnorm(sig_level/2) * 
+                   se, abs(true_effect), se)
+}
+
+
+funnel_plot <- funnel(funnel_model) #make data for the funnel plot so we can extract the y values (standard error)
+
+#power for each study using tpa human study effect size
+df_publication_bias$Power_human_tpa <- s_power(se = funnel_plot$y, #standard error, (1/sqrt(n) in this case), the y of a funnel plot
+                                      true_effect = -1.05, 
+                                      sig_level = 0.05)
+
+which(df_publication_bias$Power_human_tpa>0.8) #which studies are more than 0.8 (80% power) (none in this case)
+df_publication_bias[which(df_publication_bias$Power_human_tpa>0.8),] #display studies >80% power (none in this case)
+
+
+#power for each study using effect size observed in the dataset
+df_publication_bias$Power_mean_SMD <- s_power(se = funnel_plot$y, #standard error, (1/sqrt(n) in this case), the y of a funnel plot
+                                      true_effect = mean_effect_SMD, 
+                                      sig_level = 0.05)
+
+which(df_publication_bias$Power_mean_SMD>0.8) #which studies are more than 0.8 (80% power) (none in this case)
+df_publication_bias[which(df_publication_bias$Power_mean_SMD>0.8),] #display studies >80% power (none in this case)
+
+```
+COME BACK and fix egger's regression
+```{r Egger's_regression_manual}
+#regression test of bias - can't run regtest on rma.mv so have done the same test manually here
+
+test_egger = rma.mv(data = df_publication_bias,
+                     yi = yi,
+                     V = vi, #using standard errors is causing distortion of the plots since SE contains SMD(yi)
+                     #V = 1/sqrt(df_publication_bias$N_total),
+                     mods = ~ vi, #can the variation (vi) predict the outcome (yi)?
+                     #mods = ~ 1/sqrt(df_publication_bias$N_total),
+                     random = ~ 1 | Publication_code,
+                     slab=paste(Publication_code))
+  
+summary(test_egger) #need help to interpret: what is the "intercept" here and do I need to do a t test to see if this intercpet is different from 0?
+#see also https://stats.stackexchange.com/questions/155693/metafor-package-bias-and-sensitivity-diagnostics
+#https://bookdown.org/MathiasHarrer/Doing_Meta_Analysis_in_R/pub-bias.html#eggers-test
+
+# 
+# #trying lots of stuff below, none works
+# library(meta)
+# metabias(funnel_model, method.bias = "linreg")
+# 
+# eg.reg1 = lm(df_publication_bias$yi~1/sqrt(df_publication_bias$N_total))
+# 
+# summary(eg.reg1)
+# 
+# eg.reg2 = lm(residuals.rma(funnel_model)~df_publication_bias$vi)
+# summary(eg.reg1)
+# summary(eg.reg2)
+# 
+# 
+# regtest.rma(funnel_model, model="rma")
+# 
+# 
+# egger_result <- regtest(funnel_model)
+# 
+# library(mvmeta)
+# my_effect_sizes <- residuals.rma(funnel_model) #coef(funnel_model)
+# my_standard_errors <- 1/sqrt(df_publication_bias$N_total)
+# 
+# my_data <- escalc(measure = "GEN", yi = my_effect_sizes, vi = my_standard_errors^2)
+# egger_result <- regtest(my_data)
+# 
+# lm <- lm(effect_sizes = my_effect_sizes, standard_errors = my_standard_errors)
+
+
+```
+
+
+
+
+
+
+
