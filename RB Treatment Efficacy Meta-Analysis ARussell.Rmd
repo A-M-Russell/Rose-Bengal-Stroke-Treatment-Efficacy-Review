@@ -17,7 +17,7 @@ if(!require(multcomp)) install.packages("multcomp")
 if(!require(data.table)) install.packages("data.table")
 if(!require(viridis)) install.packages("viridis")
 if(!require(PupillometryR)) install.packages("PupillometryR")
-if(!require(metaviz)) install.packages("metaviz")
+#if(!require(metaviz)) install.packages("metaviz")
 if(!require(lme4)) install.packages("lme4")
 if(!require(lmerTest)) install.packages("lmerTest")
 if(!require(merTools)) install.packages("merTools")
@@ -32,7 +32,7 @@ library(multcomp) #for glht function
 library(data.table) #used for gsub function in plots
 library(viridis) #colour-blind friendly colour palettes
 library(PupillometryR) #used in rain cloud plots
-library(metaviz) #for visualising funnel plots with power analysis
+#library(metaviz) #for visualising funnel plots with power analysis - no longer using sunset funnel plot
 library(lme4) #for lmer random-effects linear model with subgroup analysis
 library(lmerTest) #to get more information out of linear model summary
 library(merTools) #for tools to make predictions from linear model
@@ -2224,11 +2224,8 @@ dev.off()
 ```
 
 
-
-
 ## Funnel plot for bias (both positive publication bias and small sample size bias - small samples generate large effect sizes)
-```{r treatment_funnel_plot, include=FALSE}
-
+```{r treatment_funnel_plot_data, include=FALSE}
 ## Funnel Plots
 #create dataframe with only one entry per publication (instead of experiments) and treatments designed to cause harm having their efficacy reversed - use all publications, not reduced dataset
 df_publication_bias <- df_treatments_SMD %>% 
@@ -2242,159 +2239,187 @@ df_publication_bias <- df_treatments_SMD %>%
 df_publication_bias <- df_publication_bias %>% 
   mutate(N_total = N_animals_control + N_animals_treatment)
 
-
-
+#run the weighted meta regression of these publications for the funnel plot
 funnel_model = rma.mv(data = df_publication_bias,
                      yi = yi,
                      #V = vi, #using standard errors is causing distortion of the plots since SE contains SMD(yi)
-                     V = 1/sqrt(df_publication_bias$N_total),
+                     V = vi,
                      random = ~ 1 | Publication_code,
                      slab=paste(Publication_code))
-  
-summary(funnel_model)
-predict(funnel_model)
-
-funnel_model2 = rma.mv(data = df_publication_bias,
-                     yi = yi,
-                     V = vi, #using standard errors is causing distortion of the plots since SE contains SMD(yi)
-                     #V = 1/sqrt(df_publication_bias$N_total),
-                     random = ~ 1 | Publication_code,
-                     slab=paste(Publication_code))
-  
-predict(funnel_model2)
-
-# predict(funnel_model2, newdata = data.frame(df_publication_bias$Publication_code))
-# str(funnel_model2)
-
-
-
-
-# calculate average effect size in the data frame
-mean_effect_SMD <- mean(df_treatments_SMD$yi)
-
-
-pdf("Treatments_funnel_significance_bands4.pdf", height=5, width=7)
-funnel(funnel_model, 
-       level=c(90, 95, 99), 
-       shade=c("white", "#482878", "#26828e"),
-       back = "#35b779",
-       refline=0, 
-       legend="topleft",
-       ylab = "1/√n",
-       xlab = "Standardised mean difference",
-       xlim = c(-10, 5), #be careful not to lose data when restricting x axis!
-       pch = 21, #specifies the points shape, 20 is bullet, 19 is normal big circles, 21 is filled in circles
-       )
-dev.off()
-
-
-#using minimum relevant effect as calculated from tpa studies
-pdf("Treatments_funnel_power_gradient4.pdf", height=6, width=8)
-viz_sunset(funnel_model, 
-           contours = FALSE,
-           true_effect = -1.05,
-           #power_contours =  "continuous",
-           xlab = "Standardised mean difference",
-           ylab = "1/√n",
-           text_size = 5) +
-  geom_vline(xintercept = -1.05, linetype="dashed")
-dev.off()
-
-
-#second sunset plot using the model's predicted effect size as our minimum relevant effect  (-1.1953 SMD)
-
-pdf("Treatments_funnel_power_gradient_modeleffect3.pdf", height=6, width=7)
-viz_sunset(funnel_model, 
-           contours = FALSE,
-           true_effect = mean_effect_SMD,
-           #power_contours =  "continuous",
-           xlab = "Standardised mean difference",
-           ylab = "1/√n",
-           text_size = 5) +
-  geom_vline(xintercept = mean_effect_SMD, linetype="dashed") +
-  geom_vline(xintercept = 0, linetype="solid")#+
-  #geom_hline(aes(y = Power), yintercept = 0.8)
-dev.off()
 
 ```
 
-```{r Calculate_study_power}
-# Function from Dan Quintana to find the power of each study 
-# https://www.dsquintana.blog/meta-analysis-power-plot/
-s_power <- function(se, true_effect, sig_level) {
+```{r Funnel_plot_mean_effect_size}
   
-  (1 - stats::pnorm(stats::qnorm(1 - sig_level/2) * 
-                      se, abs(true_effect), se)) + 
-    stats::pnorm(stats::qnorm(sig_level/2) * 
-                   se, abs(true_effect), se)
+# Set the difference you are hoping to detect with delta_value. This section is using the "weighted mean effect size" 
+summary_funnel_model<-summary(funnel_model)
+delta_value<-summary_funnel_model$beta
+
+
+# Calculate the values for the significance triangle bands on the graph
+# First calculate the set of powers for 0.05 and 0.01 significance, then transform by 1/sqrt(total n)
+
+#create variables for loop
+n<- seq(4,90, by= 0.1)
+delta<-numeric(length(n))
+  
+n.01<- seq(4,90, by= 0.1)
+delta.01<-numeric(length(n))
+  
+ 
+  
+for(i in 1:length(delta)){
+   
+  test.n<-power.t.test(n=n[i]/2, sd =1, power= 0.8, sig.level =0.05, strict = F)
+  delta[i]<-test.n$delta
+   
+  test.n.01<-power.t.test(n=n[i]/2, sd =1, power= 0.8, sig.level =0.01, strict = F)
+  delta.01[i]<-test.n.01$delta
+  
+  }
+
+# dataframe for significance bands
+Significance_threshold <- data.frame(cbind(1/sqrt(c(n,rev(n.01))), c(delta, rev(delta.01))))
+
+
+# Calculate where the power bands should go based on the delta we are trying to detect
+#create veriables for loop
+power_test<-seq(1, 0.1, by =-0.1)
+n_to_detect_delta<-numeric(length(power_test))
+
+
+for(i in 1:length(power_test)){
+    
+  test_power<-power.t.test(delta=delta_value, sd =1, power= power_test[i], sig.level =0.05, strict = F)
+  n_to_detect_delta[i]<-test_power$n
+   
+  }
+
+#create dataframe for coloured power bands on the graph
+reciprical_sqrt_n <- 1/sqrt(2*n_to_detect_delta)
+power_polygon <- data.frame(reciprical_sqrt_n, power_test)
+power_polygon$ymin <- c(power_polygon$reciprical_sqrt_n[-1],1)
+  
+
+#plot the graph
+pdf("Funnel_plot_precision_power_1.pdf", height = 5, width = 7)
+ggplot(df_publication_bias, aes(x = yi, y=1/sqrt(N_total))) +
+  #add the coloured bands for power calculation thresholds
+  geom_rect(data=power_polygon, inherit.aes = F,aes(xmin=-10, xmax=10, ymin=ymin,
+            ymax=reciprical_sqrt_n, fill=(as.character(c(power_test[-1],0))))) +
+  scale_fill_viridis_d(direction = -1, alpha = 0.75) + 
+  #add the grey calculated significance threshold lines for 0.01<p<0.05
+  geom_polygon(data=Significance_threshold, aes(x =X2, y=(X1)), fill = "darkgrey", alpha = 0.4)+ 
+  geom_polygon(data=Significance_threshold, aes(x =-X2, y=(X1)), fill = "darkgrey", alpha = 0.4)+
+  geom_vline(xintercept = summary_funnel_model$beta, linetype = 5, color = "#666666",size = 1.1) + #add a line for estimated effect size
+  theme_classic() +#Strip all the themes down to black and white, no gridlines, no background
+  labs(x = "SMD", 
+       y="Precision estimate (1/sqrt(n))",
+       fill = "Power") + #Label Axes + legend
+  #theme(axis.line = element_line(size=1)) + #Make axis lines thicker
+  theme(axis.title = element_text(size = 15), 
+        axis.text.x = element_text(size=12, color="black"), 
+        axis.text.y = element_text(size=12, color="black"),#Adjust axis font sizes and font colour
+        axis.ticks=element_line(color="black", lineend = "square")) + #Make ticks black
+  scale_x_continuous(expand = c(0, 0), limits = c(-10,10))+#Ensure axes join at 0,0 and set the y axis limits CAREFUL this cuts data
+  coord_cartesian(ylim=c(0.465, 0.1)) +  #change the size of the plot without cutting any data points
+  geom_point() + #plot the points on top of everything else
+  scale_y_reverse() #reverse so good precision (low numbers) are on top
+dev.off()
+
+
+#check number of studies about 80% or 90% power
+sum(1/sqrt(df_publication_bias$N_total)<power_polygon$reciprical_sqrt_n[power_polygon$power_test==0.8])
+sum(1/sqrt(df_publication_bias$N_total)<power_polygon$reciprical_sqrt_n[power_polygon$power_test==0.9])
+```
+
+```{r Funnel_plot_theoretical_large_effect}
+# Set the difference you are hoping to detect with delta_value. This section is using a generally accepted "large" SMD of 0.8
+delta_value2<--0.8
+
+#significance threshold bands already calculated above
+
+# Calculate where the power bands should go based on the delta we are trying to detect
+#create veriables for loop
+power_test2<-seq(1, 0.1, by =-0.1)
+n_to_detect_delta2<-numeric(length(power_test2))
+
+
+for(i in 1:length(power_test2)){
+    
+  test_power2<-power.t.test(delta=delta_value2, sd =1, power= power_test2[i], sig.level =0.05, strict = F)
+  n_to_detect_delta2[i]<-test_power2$n
+   
+  }
+
+#create dataframe for coloured power bands on the graph
+reciprical_sqrt_n2 <- 1/sqrt(2*n_to_detect_delta2)
+power_polygon2 <- data.frame(reciprical_sqrt_n2, power_test2)
+power_polygon2$ymin <- c(power_polygon2$reciprical_sqrt_n2[-1],1)
+  
+
+#plot the graph
+pdf("Funnel_plot_precision_power_largeSMD_1.pdf", height = 5, width = 7)
+ggplot(df_publication_bias, aes(x = yi, y=1/sqrt(N_total))) +
+  #add the coloured bands for power calculation thresholds
+  geom_rect(data=power_polygon2, inherit.aes = F,aes(xmin=-10, xmax=10, ymin=ymin,
+            ymax=reciprical_sqrt_n2, fill=(as.character(c(power_test2[-1],0))))) +
+  scale_fill_viridis_d(direction = -1, alpha = 0.75) + 
+  #add the grey calculated significance threshold lines for 0.01<p<0.05
+  geom_polygon(data=Significance_threshold, aes(x =X2, y=(X1)), fill = "darkgrey", alpha = 0.4)+ 
+  geom_polygon(data=Significance_threshold, aes(x =-X2, y=(X1)), fill = "darkgrey", alpha = 0.4)+
+  geom_vline(xintercept = delta_value2, linetype = 5, color = "#666666",size = 1.1) + #add a line for estimated effect size
+  theme_classic() +#Strip all the themes down to black and white, no gridlines, no background
+  labs(x = "SMD", 
+       y="Precision estimate (1/sqrt(n))",
+       fill = "Power") + #Label Axes + legend
+  #theme(axis.line = element_line(size=1)) + #Make axis lines thicker
+  theme(axis.title = element_text(size = 15), 
+        axis.text.x = element_text(size=12, color="black"), 
+        axis.text.y = element_text(size=12, color="black"),#Adjust axis font sizes and font colour
+        axis.ticks=element_line(color="black", lineend = "square")) + #Make ticks black
+  scale_x_continuous(expand = c(0, 0), limits = c(-10,10))+#Ensure axes join at 0,0 and set the y axis limits CAREFUL this cuts data
+  coord_cartesian(ylim=c(0.465, 0.1)) +  #change the size of the plot without cutting any data points
+  geom_point() + #plot the points on top of everything else
+  scale_y_reverse() #reverse so good precision (low numbers) are on top
+dev.off()
+
+
+#check number of studies about 80% or 90% power
+sum(1/sqrt(df_publication_bias$N_total)<power_polygon2$reciprical_sqrt_n2[power_polygon2$power_test2==0.8])
+sum(1/sqrt(df_publication_bias$N_total)<power_polygon2$reciprical_sqrt_n2[power_polygon2$power_test==0.9])
+```
+
+```{r, power_calculations_per_study}
+#calculate the power per study
+
+#make variables for mean SMD power and power with a theoretical 'large' SMD (-0.8)
+df_publication_bias$Calculated_power_mean_SMD<-999
+df_publication_bias$Calculated_power_theoretical_SMD<-999
+
+#do power calculateion per study for mean SMD
+for(i in 1:nrow(df_publication_bias)){
+  
+  power_test_results<-power.t.test(df_publication_bias$N_total[i]/2, sig.level = 0.05, delta = delta_value)
+  df_publication_bias$Calculated_power_mean_SMD[i]<-power_test_results$power
+  
 }
 
-
-funnel_plot <- funnel(funnel_model) #make data for the funnel plot so we can extract the y values (standard error)
-
-#power for each study using tpa human study effect size
-df_publication_bias$Power_human_tpa <- s_power(se = funnel_plot$y, #standard error, (1/sqrt(n) in this case), the y of a funnel plot
-                                      true_effect = -1.05, 
-                                      sig_level = 0.05)
-
-which(df_publication_bias$Power_human_tpa>0.8) #which studies are more than 0.8 (80% power) (none in this case)
-df_publication_bias[which(df_publication_bias$Power_human_tpa>0.8),] #display studies >80% power (none in this case)
-
-
-#power for each study using effect size observed in the dataset
-df_publication_bias$Power_mean_SMD <- s_power(se = funnel_plot$y, #standard error, (1/sqrt(n) in this case), the y of a funnel plot
-                                      true_effect = mean_effect_SMD, 
-                                      sig_level = 0.05)
-
-which(df_publication_bias$Power_mean_SMD>0.8) #which studies are more than 0.8 (80% power) (none in this case)
-df_publication_bias[which(df_publication_bias$Power_mean_SMD>0.8),] #display studies >80% power (none in this case)
-
-```
-COME BACK and fix egger's regression
-```{r Egger's_regression_manual}
-#regression test of bias - can't run regtest on rma.mv so have done the same test manually here
-
-test_egger = rma.mv(data = df_publication_bias,
-                     yi = yi,
-                     V = vi, #using standard errors is causing distortion of the plots since SE contains SMD(yi)
-                     #V = 1/sqrt(df_publication_bias$N_total),
-                     mods = ~ vi, #can the variation (vi) predict the outcome (yi)?
-                     #mods = ~ 1/sqrt(df_publication_bias$N_total),
-                     random = ~ 1 | Publication_code,
-                     slab=paste(Publication_code))
+#do power calculateion per study for theoretical
+for(i in 1:nrow(df_publication_bias)){
   
-summary(test_egger) #need help to interpret: what is the "intercept" here and do I need to do a t test to see if this intercpet is different from 0?
-#see also https://stats.stackexchange.com/questions/155693/metafor-package-bias-and-sensitivity-diagnostics
-#https://bookdown.org/MathiasHarrer/Doing_Meta_Analysis_in_R/pub-bias.html#eggers-test
+  power_test_results2<-power.t.test(df_publication_bias$N_total[i]/2, sig.level = 0.05, delta = delta_value2)
+  df_publication_bias$Calculated_power_theoretical_SMD[i]<-power_test_results2$power
+  
+}
 
-# 
-# #trying lots of stuff below, none works
-# library(meta)
-# metabias(funnel_model, method.bias = "linreg")
-# 
-# eg.reg1 = lm(df_publication_bias$yi~1/sqrt(df_publication_bias$N_total))
-# 
-# summary(eg.reg1)
-# 
-# eg.reg2 = lm(residuals.rma(funnel_model)~df_publication_bias$vi)
-# summary(eg.reg1)
-# summary(eg.reg2)
-# 
-# 
-# regtest.rma(funnel_model, model="rma")
-# 
-# 
-# egger_result <- regtest(funnel_model)
-# 
-# library(mvmeta)
-# my_effect_sizes <- residuals.rma(funnel_model) #coef(funnel_model)
-# my_standard_errors <- 1/sqrt(df_publication_bias$N_total)
-# 
-# my_data <- escalc(measure = "GEN", yi = my_effect_sizes, vi = my_standard_errors^2)
-# egger_result <- regtest(my_data)
-# 
-# lm <- lm(effect_sizes = my_effect_sizes, standard_errors = my_standard_errors)
+#check number of studies above 80% power is the same as the funnel plot calculations
+sum(df_publication_bias$Calculated_power_mean_SMD>0.8)
+sum(df_publication_bias$Calculated_power_theoretical_SMD>0.8)
 
+#summary stats for powers
+summary(df_publication_bias$Calculated_power_mean_SMD)
+summary(df_publication_bias$Calculated_power_theoretical_SMD)
 
 ```
 
