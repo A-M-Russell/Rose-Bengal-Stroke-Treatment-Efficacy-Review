@@ -1,11 +1,19 @@
 ---
-title: "RB Surgical Severity Analysis Treatment"
+title: "Rose Bengal Treatment Efficacy Analysis"
 author: "Ash A. M. Russell"
 date: "14/04/2022"
 output: html_document
 editor_options: 
   chunk_output_type: inline
 ---
+All code for meta-analysis of treatment efficacy in Rose Bengal model of stroke. This analysis looks into which treatment classes are effecive in Rose Bengal stroke and how quality and publication bias may affect treatment efficacy. 
+Requires two .csv excel files, Russell_Data_Extraction_Rose_Bengal_11.csv and Russell_Rose_Bengal_Quality_2.csv
+Markdown file started on 14/04/2022, last updated 22/07/2023
+
+This analysis is the firs half of a two-part analysis of Rose Bengal stroke literature. The second hald assesses the control group data to determine what methodological variables affect infarct volume. The protocol for both these analyses is available on PROSPERO at http://www.crd.york.ac.uk/PROSPERO/display_record.php?ID=CRD42019115429
+
+Code chunks with plot outputs are set to eval=FALSE so they won't produce plots unless you run them deliberately.
+Most chunks are set to include=FALSE so the code will run but the outputs won't print in a knitted file to reduce the output file length. Remove this for any sections you wish to output into a knitted file.
 
 ```{r setup, include=FALSE, warning=FALSE}
 options(scipen = 999) #turns off scientific notation
@@ -158,7 +166,7 @@ tapply(df$Year, df$Decade, summary)
 
 ```
 
-```{r subgroup_data_frames, eval=FALSE, include=FALSE}
+```{r subgroup_data_frames, include=FALSE}
 #make some sub-group data frames for different analyses
 
 #all rodents (rats and mice)
@@ -701,7 +709,7 @@ df_reduced_SMD$X8_Power_calc <- factor(df_reduced_SMD$X8_Power_calc)
 
 ```
 
-```{r meta_regression_treatment_efficacy}
+```{r meta_regression_treatment_efficacy, warning=FALSE}
 #meta-regression for treatment outcome efficacy - only using variables that a-priori make sense to affect treatment efficacy
 met_signif <- rma.mv(data = df_reduced_SMD,
                      yi = yi,
@@ -721,7 +729,6 @@ met_signif <- rma.mv(data = df_reduced_SMD,
 
 
 summary(met_signif)
-predict(met_signif)
 
 sink(file = "rma.mv_output.txt")
 met_signif_text <- summary(met_signif)
@@ -742,7 +749,7 @@ summary(sum_signif)
 ```
 
 A separate analysis replacing the 5 quality variables with one summed quality variable to try and account for collinearity.
-```{r Summed_quality_meta_regression}
+```{r Summed_quality_meta_regression, warning=FALSE}
 
 df_reduced_SMD$Quality_summed <- factor(df_reduced_SMD$Quality_summed) 
 #make numeric summed quality score a factor so the model does not try to fit a linear relationship to it
@@ -781,8 +788,8 @@ res_signif_quality_subset <- subset(res_signif_quality, delta <= 2, recalc.weigh
 ```
 
 
-Posthoc analyses for treatment efficacy
-```{r posthocs_treatment_setup, include=FALSE}
+Posthoc analyses for treatment efficacy (not used in thesis discussion but good to know)
+```{r posthocs_treatment_setup, include=FALSE, eval=FALSE}
 #Doing post hoc analyses to compare all categorical variables in meta-regression to each other instead of to a baseline
 
 ##THIS IS ON THE RMA.MV NOT ON THE DREDGE - won't work with the multi-model inference output
@@ -813,7 +820,7 @@ for(i in seq(1,length(num), by=2)){
 df.posthoc.final<-cbind(post.hoc,Comparisons)
 ```
 
-```{r posthocs_treatment_effiacy}
+```{r posthocs_treatment_effiacy, include=FALSE, eval=FALSE}
 # Select and correct
 #select comparisons that make sense - do this for each individual variable group (eg all treatments) and correct within each group
 
@@ -933,7 +940,7 @@ Temp_FE
 Taking the four treatment classes that were highly significant and analysing more:
 Anti-oxidants, Anti-inflammation, Anti-apoptosis/Regeneration, and Blood flow.
 
-```{r efficacious_treatments_by_administration_time_analysis}
+```{r efficacious_treatments_by_administration_time_analysis, include=FALSE}
 #
 efficacious_treatments<-c("Anti-oxidants", "Anti-inflammation", "Blood flow", "Anti-apoptosis/regeneration")
 
@@ -1030,7 +1037,7 @@ Predicted_data_efficacious$p.value<-round(pt(Predicted_data_efficacious$Tscore, 
 
 ```
 
-```{r administration_time_alone_analysis}
+```{r administration_time_alone_analysis, include=FALSE}
 #Predicting just administration time class
 
 met_efficacious_time <- lmer(
@@ -1103,7 +1110,7 @@ Predicted_data_time$p.value<-round(pt(Predicted_data_time$Tscore, df=Predicted_d
 
 ```
 
-```{r efficacious_treatments_alone_analysis}
+```{r efficacious_treatments_alone_analysis, include=FALSE}
 #Predicting just efficacious treatment classes
 
 met_efficacious_treat <- lmer(
@@ -1175,7 +1182,7 @@ Predicted_data_treat$p.value<-round(pt(Predicted_data_treat$Tscore, df=Predicted
 
 ```
 
-```{r graph_efficacious_treatments_by_administration_time}
+```{r graph_efficacious_treatments_by_administration_time, include=FALSE, eval=FALSE}
 
 #add missing variables to the time alone and treatment class alone dataframes
 #for the overall effect of treatment time, make variable level called Overall time
@@ -1350,7 +1357,7 @@ summary(Tclass.df1$Explanatory)
 
 ```
 
-```{r treatment_class_rain_plot}
+```{r treatment_class_rain_plot, include=FALSE, eval=FALSE}
 #make the raincloud plot for treatment class
 Rain.cloud.Tclass <- ggplot(data = df.plot.Tclass1, 
                            aes(y = as.numeric(Residuals), 
@@ -1444,7 +1451,7 @@ summary(Comorbidity.df1$Explanatory)
 
 ```
 
-```{r treatment_comorbidity_rain_plot}
+```{r treatment_comorbidity_rain_plot, include=FALSE, eval=FALSE}
 #make the raincloud plot
 Rain.cloud.Comorbidity <- ggplot(data = df.plot.Comorbidity1, 
                            aes(y = as.numeric(Residuals), 
@@ -1541,7 +1548,7 @@ summary(df.plot.TTime1$Explanatory)
 df.plot.TTime1<-na.omit(df.plot.TTime1) #get rid of that one study with NAs
 ```
 
-```{r treatment_time_rain_plot}
+```{r treatment_time_rain_plot, include=FALSE, eval=FALSE}
 #make the raincloud plot
 Rain.cloud.TTime <- ggplot(data = df.plot.TTime1, 
                            aes(y = as.numeric(Residuals), 
@@ -1633,7 +1640,7 @@ summary(factor(Inf_time_class.df1$Explanatory))
 df.plot.Inf_time_class1<-na.omit(df.plot.Inf_time_class1) #get rid of that one study with NAs
 ```
 
-```{r treatment_measurement_time_rain_plot}
+```{r treatment_measurement_time_rain_plot, include=FALSE, eval=FALSE}
 #make the raincloud plot
 Rain.cloud.Inf_time_class <- ggplot(data = df.plot.Inf_time_class1, 
                            aes(y = as.numeric(Residuals), 
@@ -1727,7 +1734,7 @@ summary(factor(Bodytemp.df1$Explanatory))
 
 ```
 
-```{r treatment_bodytemp_rain_plot}
+```{r treatment_bodytemp_rain_plot, include=FALSE, eval=FALSE}
 #make the raincloud plot
 Rain.cloud.Bodytemp <- ggplot(data = df.plot.Bodytemp1, 
                            aes(y = as.numeric(Residuals), 
@@ -1818,7 +1825,7 @@ summary(factor(Randomisation.df1$Explanatory))
 
 ```
 
-```{r treatment_randomisation_rain_plot}
+```{r treatment_randomisation_rain_plot, include=FALSE, eval=FALSE}
 #make the raincloud plot
 Rain.cloud.Randomisation <- ggplot(data = df.plot.Randomisation1, 
                            aes(y = as.numeric(Residuals), 
@@ -1909,7 +1916,7 @@ summary(factor(BlindA.df1$Explanatory))
 
 ```
 
-```{r treatment_blinded_allocation_rain_plot}
+```{r treatment_blinded_allocation_rain_plot, include=FALSE, eval=FALSE}
 #make the raincloud plot
 Rain.cloud.BlindA <- ggplot(data = df.plot.BlindA1, 
                            aes(y = as.numeric(Residuals), 
@@ -1999,7 +2006,7 @@ summary(factor(BlindOut.df1$Explanatory))
 #order is fine
 ```
 
-```{r treatment_blinded_outcome_rain_plot}
+```{r treatment_blinded_outcome_rain_plot, include=FALSE, eval=FALSE}
 #make the raincloud plot for surgical level
 Rain.cloud.BlindOut <- ggplot(data = df.plot.BlindOut1, 
                            aes(y = as.numeric(Residuals), 
@@ -2089,7 +2096,7 @@ summary(factor(Power.df1$Explanatory))
 #order is fine
 ```
 
-```{r treatment_power_calc_rain_plot}
+```{r treatment_power_calc_rain_plot, include=FALSE, eval=FALSE}
 #make the raincloud plot for surgical level
 Rain.cloud.Power <- ggplot(data = df.plot.Power1, 
                            aes(y = as.numeric(Residuals), 
@@ -2128,7 +2135,7 @@ dev.off()
 
 
 Quality markers summed (using a different meta analysis)
-```{r treatment_coefficients_quality_summed_meta, eval=FALSE}
+```{r treatment_coefficients_quality_summed_meta, include=FALSE}
 #coefficients for all variables in model
 ModelAvgQualSum <- met_signif_quality #the main rma.mv model, no dredge multi-model inference for this model
 df1QualSum <- coef(summary(ModelAvgQualSum)) #extract the model coefficient table
@@ -2140,7 +2147,7 @@ df1QualSum$CI.max <- df1QualSum$ci.ub
 
 ```
 
-```{r treatment_quality_summed_residuals, include=FALSE, eval=FALSE}
+```{r treatment_quality_summed_residuals, include=FALSE}
 #run meta again minus summed quality
 met_signif_drop_QualSum <- rma.mv(data = df_reduced_SMD,
                      yi = yi,
@@ -2168,7 +2175,7 @@ colnames(df.plot.QualSum1)<-c("Publication_code", "Residuals","Explanatory")
 
 ```
 
-```{r treatment_quality_summed_clean_plot_data,include=FALSE, eval=FALSE}
+```{r treatment_quality_summed_clean_plot_data,include=FALSE}
 QualSum.df1 <- df1QualSum %>% #take the rows that contain the intercept and the variable of interest
     filter(str_detect(Explanatory, "intrcpt") | str_detect(Explanatory, "Quality_summed"))
 
@@ -2184,7 +2191,7 @@ summary(df.plot.QualSum1$Explanatory)
 #order is fine
 ```
 
-```{r treatment_quality_summed_rain_plot, eval=FALSE}
+```{r treatment_quality_summed_rain_plot, include=FALSE, eval=FALSE}
 #make the raincloud plot for treatment class
 Rain.cloud.QualSum <- ggplot(data = df.plot.QualSum1, 
                            aes(y = as.numeric(Residuals), 
@@ -2249,7 +2256,7 @@ funnel_model = rma.mv(data = df_publication_bias,
 
 ```
 
-```{r Funnel_plot_mean_effect_size}
+```{r Funnel_plot_mean_effect_size, include=FALSE, eval=FALSE}
   
 # Set the difference you are hoping to detect with delta_value. This section is using the "weighted mean effect size" 
 summary_funnel_model<-summary(funnel_model)
@@ -2333,7 +2340,7 @@ sum(1/sqrt(df_publication_bias$N_total)<power_polygon$reciprical_sqrt_n[power_po
 sum(1/sqrt(df_publication_bias$N_total)<power_polygon$reciprical_sqrt_n[power_polygon$power_test==0.9])
 ```
 
-```{r Funnel_plot_theoretical_large_effect}
+```{r Funnel_plot_theoretical_large_effect, include=FALSE, eval=FALSE}
 # Set the difference you are hoping to detect with delta_value. This section is using a generally accepted "large" SMD of 0.8
 delta_value2<--0.8
 
@@ -2390,7 +2397,7 @@ sum(1/sqrt(df_publication_bias$N_total)<power_polygon2$reciprical_sqrt_n2[power_
 sum(1/sqrt(df_publication_bias$N_total)<power_polygon2$reciprical_sqrt_n2[power_polygon2$power_test==0.9])
 ```
 
-```{r, power_calculations_per_study}
+```{r, power_calculations_per_study, include=FALSE, eval=FALSE}
 #calculate the power per study
 
 #make variables for mean SMD power and power with a theoretical 'large' SMD (-0.8)
