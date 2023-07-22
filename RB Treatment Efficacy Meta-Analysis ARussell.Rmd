@@ -8,9 +8,10 @@ editor_options:
 ---
 All code for meta-analysis of treatment efficacy in Rose Bengal model of stroke. This analysis looks into which treatment classes are effecive in Rose Bengal stroke and how quality and publication bias may affect treatment efficacy. 
 Requires two .csv excel files, Russell_Data_Extraction_Rose_Bengal_11.csv and Russell_Rose_Bengal_Quality_2.csv
+Can also use the pre-run workspace file to save time running the code: RB_Treatment_Efficacy_Workspace_ARussell_5.RData
 Markdown file started on 14/04/2022, last updated 22/07/2023
 
-This analysis is the firs half of a two-part analysis of Rose Bengal stroke literature. The second hald assesses the control group data to determine what methodological variables affect infarct volume. The protocol for both these analyses is available on PROSPERO at http://www.crd.york.ac.uk/PROSPERO/display_record.php?ID=CRD42019115429
+This analysis is the first half of a two-part analysis of Rose Bengal stroke literature. The second half assesses the control group data to determine what methodological variables affect infarct volume. The protocol for both these analyses is available on PROSPERO at http://www.crd.york.ac.uk/PROSPERO/display_record.php?ID=CRD42019115429
 
 Code chunks with plot outputs are set to eval=FALSE so they won't produce plots unless you run them deliberately.
 Most chunks are set to include=FALSE so the code will run but the outputs won't print in a knitted file to reduce the output file length. Remove this for any sections you wish to output into a knitted file.
@@ -25,7 +26,6 @@ if(!require(multcomp)) install.packages("multcomp")
 if(!require(data.table)) install.packages("data.table")
 if(!require(viridis)) install.packages("viridis")
 if(!require(PupillometryR)) install.packages("PupillometryR")
-#if(!require(metaviz)) install.packages("metaviz")
 if(!require(lme4)) install.packages("lme4")
 if(!require(lmerTest)) install.packages("lmerTest")
 if(!require(merTools)) install.packages("merTools")
@@ -40,7 +40,6 @@ library(multcomp) #for glht function
 library(data.table) #used for gsub function in plots
 library(viridis) #colour-blind friendly colour palettes
 library(PupillometryR) #used in rain cloud plots
-#library(metaviz) #for visualising funnel plots with power analysis - no longer using sunset funnel plot
 library(lme4) #for lmer random-effects linear model with subgroup analysis
 library(lmerTest) #to get more information out of linear model summary
 library(merTools) #for tools to make predictions from linear model
